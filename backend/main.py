@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, ValidationError
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from auth import get_current_user, router as auth_router
+from crm import router as crm_router
 from database import get_connection
 
 
@@ -31,12 +32,15 @@ client = Groq(
 
 app = FastAPI()
 app.include_router(auth_router)
+app.include_router(crm_router)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:8081",
         "http://127.0.0.1:8081",
+        "http://localhost:8082",
+        "http://127.0.0.1:8082",
     ],
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

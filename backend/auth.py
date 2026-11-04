@@ -2,6 +2,7 @@ import hashlib
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 from uuid import UUID
 
 import jwt
@@ -13,6 +14,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from pwdlib import PasswordHash
 
 from database import get_connection
+
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 password_hasher = PasswordHash.recommended()
@@ -33,6 +35,8 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 ALLOWED_ORIGINS = {
     "http://localhost:8081",
     "http://127.0.0.1:8081",
+    "http://localhost:8082",
+    "http://127.0.0.1:8082",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 }
@@ -49,8 +53,10 @@ class RegisterRequest(BaseModel):
     @classmethod
     def validate_name(cls, value: str) -> str:
         value = value.strip()
+
         if not value:
             raise ValueError("Name cannot be blank.")
+
         return value
 
 
@@ -63,6 +69,7 @@ class UserResponse(BaseModel):
     id: UUID
     name: str
     email: EmailStr
+    role: Literal["customer", "agent", "admin"]
     created_at: datetime
 
 
@@ -73,8 +80,6 @@ class TokenResponse(BaseModel):
 
 
 def token_hash(token: str) -> str:
-    # Random refresh tokens have high entropy; SHA-256 is suitable here.
-    # User passwords continue to use Argon2.
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
@@ -110,6 +115,7 @@ def set_refresh_cookie(
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
     expires_at = expires_at.astimezone(timezone.utc)
+
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
@@ -119,13 +125,18 @@ def set_refresh_cookie(
         samesite="lax",
         path="/auth",
     )
+
     response.headers["Cache-Control"] = "no-store"
 
 
 def check_origin(request: Request):
     origin = request.headers.get("origin")
+
     if origin is not None and origin not in ALLOWED_ORIGINS:
-        raise HTTPException(status_code=403, detail="Origin not allowed.")
+        raise HTTPException(
+            status_code=403,
+            detail="Origin not allowed.",
+        )
 
 
 def require_session_header(
@@ -134,8 +145,6 @@ def require_session_header(
 ):
     check_origin(request)
 
-    # A custom header prevents ordinary cross-site form submissions.
-    # Keep CORS restricted to our explicit frontend origins.
     if x_leia_csrf != "1":
         raise HTTPException(
             status_code=403,
@@ -151,14 +160,16 @@ def register(request: RegisterRequest):
     try:
         with get_connection() as connection:
             with connection.cursor() as cursor:
+                # Public registration always creates a customer.
                 cursor.execute(
                     """
-                    INSERT INTO users (name, email, password_hash)
-                    VALUES (%s, %s, %s)
-                    RETURNING id, name, email, created_at;
+                    INSERT INTO users (name, email, password_hash, role)
+                    VALUES (%s, %s, %s, 'customer')
+                    RETURNING id, name, email, role, created_at;
                     """,
                     (request.name, email, hashed_password),
                 )
+
                 user = cursor.fetchone()
 
     except UniqueViolation:
@@ -185,6 +196,7 @@ def login(
                 "SELECT id, password_hash FROM users WHERE email = %s;",
                 (email,),
             )
+
             user = cursor.fetchone()
 
     stored_hash = user["password_hash"] if user else DUMMY_HASH
@@ -198,13 +210,15 @@ def login(
         )
 
     refresh_token = secrets.token_urlsafe(48)
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=SESSION_SECONDS)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        seconds=SESSION_SECONDS
+    )
     tokens = create_access_token(user["id"])
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            # Revoke the previous session in this browser, if present.
             previous_token = http_request.cookies.get(COOKIE_NAME)
+
             if previous_token:
                 cursor.execute(
                     """
@@ -238,13 +252,15 @@ def refresh(
     current_token = request.cookies.get(COOKIE_NAME)
 
     if not current_token:
-        raise HTTPException(status_code=401, detail="Please log in again.")
+        raise HTTPException(
+            status_code=401,
+            detail="Please log in again.",
+        )
 
     new_token = secrets.token_urlsafe(48)
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            # Lock the session so simultaneous refreshes cannot both succeed.
             cursor.execute(
                 """
                 SELECT id, user_id, expires_at
@@ -256,6 +272,7 @@ def refresh(
                 """,
                 (token_hash(current_token),),
             )
+
             session = cursor.fetchone()
 
             if session is None:
@@ -275,7 +292,7 @@ def refresh(
                 (token_hash(new_token), session["id"]),
             )
 
-    # Rotation preserves the original seven-day session expiry.
+    # Preserve the original session expiry when rotating the token.
     set_refresh_cookie(response, new_token, session["expires_at"])
     return tokens
 
@@ -308,6 +325,7 @@ def logout(
         secure=COOKIE_SECURE,
         samesite="lax",
     )
+
     response.headers["Cache-Control"] = "no-store"
     return {"message": "Logged out."}
 
@@ -331,7 +349,16 @@ def get_current_user(
             algorithms=[JWT_ALGORITHM],
             issuer="leia-api",
             audience="leia-client",
-            options={"require": ["sub", "iat", "exp", "iss", "aud", "token_type"]},
+            options={
+                "require": [
+                    "sub",
+                    "iat",
+                    "exp",
+                    "iss",
+                    "aud",
+                    "token_type",
+                ]
+            },
         )
 
         if payload["token_type"] != "access":
@@ -344,14 +371,16 @@ def get_current_user(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
+            # Read the current role from the database on each request.
             cursor.execute(
                 """
-                SELECT id, name, email, created_at
+                SELECT id, name, email, role, created_at
                 FROM users
                 WHERE id = %s;
                 """,
                 (user_id,),
             )
+
             user = cursor.fetchone()
 
     if user is None:
@@ -360,6 +389,36 @@ def get_current_user(
     return user
 
 
+def require_staff(user: dict = Depends(get_current_user)):
+    if user["role"] not in {"agent", "admin"}:
+        raise HTTPException(
+            status_code=403,
+            detail="Agent or admin access is required.",
+        )
+
+    return user
+
+
+def require_admin(user: dict = Depends(get_current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access is required.",
+        )
+
+    return user
+
+
 @router.get("/me", response_model=UserResponse)
 def me(user: dict = Depends(get_current_user)):
+    return user
+
+
+@router.get("/staff/me", response_model=UserResponse)
+def staff_me(user: dict = Depends(require_staff)):
+    return user
+
+
+@router.get("/admin/me", response_model=UserResponse)
+def admin_me(user: dict = Depends(require_admin)):
     return user
