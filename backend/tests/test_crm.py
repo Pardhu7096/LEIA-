@@ -464,9 +464,13 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
         chat=SimpleNamespace(completions=SimpleNamespace(create=extract))
     ))
     import main
+    import property_media
+    from io import BytesIO
+    from PIL import Image
 
     connect = database
     monkeypatch.setattr(main, "get_connection", connect)
+    monkeypatch.setattr(property_media, "get_connection", connect)
     monkeypatch.setattr(auth, "get_connection", connect)
     owner, other, admin = [staff(connect, role) for role in ("agent", "agent", "admin")]
 
@@ -510,12 +514,61 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
             headers=headers(owner),
         )
         assert updated.status_code == 200, updated.text
-        submitted = http.post(
-            f"{path}/submit", json={"version": updated.json()["version"]}, headers=headers(owner)
-        )
+        def image_bytes(width, height):
+            image = Image.new("RGB", (width, height), "green")
+            exif = image.getexif()
+            exif[0x010E] = "private metadata"
+            buffer = BytesIO()
+            image.save(buffer, "JPEG", exif=exif)
+            return buffer.getvalue()
+
+        version = {"version": updated.json()["version"]}
+        cover_path = f"{path}/media/cover"
+        panorama_path = f"{path}/media/panorama"
+        cover = image_bytes(600, 400)
+        panorama = image_bytes(1024, 512)
+        assert http.put(cover_path, params=version, content=cover).status_code == 401
+        assert http.put(cover_path, params=version, content=cover, headers=headers(other)).status_code == 404
+        assert http.put(cover_path, params=version, content=b"<svg/>", headers=headers(owner)).status_code == 422
+        assert http.put(cover_path, params=version, content=b"x" * (5 * 1024**2 + 1), headers=headers(owner)).status_code == 413
+        assert http.put(panorama_path, params=version, content=cover, headers=headers(owner)).status_code == 422
+
+        uploaded = http.put(cover_path, params=version, content=cover, headers=headers(owner))
+        assert uploaded.status_code == 200, uploaded.text
+        assert http.delete(cover_path, params=version, headers=headers(owner)).status_code == 409
+        version = {"version": uploaded.json()["version"]}
+        removed = http.delete(cover_path, params=version, headers=headers(owner))
+        assert removed.status_code == 200, removed.text
+        assert http.get(cover_path, headers=headers(owner)).status_code == 404
+        version = {"version": removed.json()["version"]}
+        uploaded = http.put(cover_path, params=version, content=cover, headers=headers(owner))
+        assert uploaded.status_code == 200, uploaded.text
+        public_cover = f"/property-media/{uploaded.json()['id']}"
+        version = {"version": uploaded.json()["version"]}
+        uploaded = http.put(panorama_path, params=version, content=panorama, headers=headers(owner))
+        assert uploaded.status_code == 200, uploaded.text
+        public_tour = f"/property-media/{uploaded.json()['id']}/tour"
+        version = {"version": uploaded.json()["version"]}
+
+        assert http.get(public_cover).status_code == 404
+        assert http.get(public_tour).status_code == 404
+        assert http.get(cover_path, headers=headers(other)).status_code == 404
+
+        submitted = http.post(f"{path}/submit", json=version, headers=headers(owner))
         assert submitted.status_code == 200, submitted.text
         assert submitted.json()["status"] == "submitted"
         assert results() == []
+        preview = http.get(cover_path, headers=headers(admin))
+        assert preview.status_code == 200, preview.text
+        with Image.open(BytesIO(preview.content)) as sanitized:
+            assert sanitized.getexif().get(0x010E) is None
+        assert http.get(panorama_path, headers=headers(admin)).status_code == 200
+        assert http.get(public_cover).status_code == 404
+        assert http.get(public_tour).status_code == 404
+        assert http.put(
+            cover_path, params={"version": submitted.json()["version"]},
+            content=cover, headers=headers(admin),
+        ).status_code == 409
         assert http.post(f"{path}/approve", json=version, headers=headers(admin)).status_code == 409
         version = {"version": submitted.json()["version"]}
         assert http.post(f"{path}/approve", json=version, headers=headers(owner)).status_code == 403
@@ -532,8 +585,12 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
             "price": 7500000,
             "area_sqft": 1130,
             "bedrooms": 3,
-            "image": None,
+            "image": public_cover,
+            "tour": public_tour,
         }]
+        assert http.get(public_cover).headers["content-type"] == "image/jpeg"
+        assert http.get(public_tour).status_code == 200
+        assert http.get(public_tour.removesuffix("/tour")).headers["content-type"] == "image/jpeg"
 
         reply = main.generate_chat_reply(main.ChatRequest(message="3 BHK under 80 lakh in Vizag"))
         assert reply["properties"] == cards
@@ -542,3 +599,5 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
                 "UPDATE properties SET availability = 'sold' WHERE id = %s", (listing["id"],)
             )
         assert results() == []
+        assert http.get(public_cover).status_code == 404
+        assert http.get(public_tour).status_code == 404

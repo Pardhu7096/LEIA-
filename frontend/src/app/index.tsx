@@ -252,17 +252,17 @@ export default function HomeScreen() {
                             {property.details}
                           </Text>
 
-                          {property.isSample ? (
+                          {property.isSample || property.tour ? (
                             <Pressable
                               onPress={() => setSelectedProperty(property)}
                               accessibilityRole="button"
                               accessibilityLabel={
-                                `Open sample 360-degree tour for ${property.title}`
+                                `Open 360-degree tour for ${property.title}`
                               }
                               style={tourStyles.button}
                             >
                               <Text style={tourStyles.buttonText}>
-                                View sample 360° ↗
+                                {property.isSample ? "View sample 360° ↗" : "View 360° tour ↗"}
                               </Text>
                             </Pressable>
                           ) : null}
@@ -317,7 +317,7 @@ export default function HomeScreen() {
             </View>
 
             <Text style={styles.disclaimer}>
-              AI responses may contain mistakes. Listings and photos are examples.
+              AI responses may contain mistakes. Sample listings are labeled.
             </Text>
           </View>
         </View>
@@ -373,13 +373,15 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
-          <Text style={tourStyles.notice}>
-            Sample panorama — unrelated to this property.
-          </Text>
+          {selectedProperty?.isSample ? (
+            <Text style={tourStyles.notice}>
+              Sample panorama — unrelated to this property.
+            </Text>
+          ) : null}
 
           <View style={tourStyles.viewer}>
             {selectedProperty !== null && (
-              <PanoramaView uri={SAMPLE_TOUR_URL} />
+              <PanoramaView uri={selectedProperty.tour ?? SAMPLE_TOUR_URL} />
             )}
           </View>
 

@@ -17,6 +17,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from auth import get_current_user, router as auth_router
 from crm import router as crm_router
 from database import get_connection
+from property_media import router as media_router
 
 
 api_key = os.getenv("GROQ_API_KEY")
@@ -33,6 +34,7 @@ client = Groq(
 app = FastAPI()
 app.include_router(auth_router)
 app.include_router(crm_router)
+app.include_router(media_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -143,10 +145,16 @@ def filter_properties(filters: SearchFilters) -> list[dict]:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id::text AS id, title, concat_ws(', ', locality, city) AS location,
+                SELECT p.id::text AS id, title, concat_ws(', ', locality, city) AS location,
                     price, bedrooms, area_sqft::double precision AS area_sqft,
-                    property_type, NULL::text AS image
-                FROM public.properties
+                    p.property_type,
+                    '/property-media/' || cover.id AS image,
+                    '/property-media/' || panorama.id || '/tour' AS tour
+                FROM public.properties AS p
+                LEFT JOIN public.property_media AS cover
+                    ON cover.property_id = p.id AND cover.kind = 'cover'
+                LEFT JOIN public.property_media AS panorama
+                    ON panorama.property_id = p.id AND panorama.kind = 'panorama'
                 WHERE status = 'approved' AND availability = 'available'
                     AND (%(bedrooms)s::integer IS NULL OR bedrooms = %(bedrooms)s)
                     AND (%(min_price)s::numeric IS NULL OR price >= %(min_price)s)
@@ -156,7 +164,7 @@ def filter_properties(filters: SearchFilters) -> list[dict]:
                         OR lower(city) = lower(%(location)s)
                         OR lower(concat_ws(', ', locality, city)) = lower(%(location)s))
                     AND (%(property_type)s::text IS NULL OR property_type = %(property_type)s)
-                ORDER BY reviewed_at DESC NULLS LAST, id
+                ORDER BY reviewed_at DESC NULLS LAST, p.id
                 LIMIT 30
                 """,
                 {**filters.model_dump(), "location": location or None},

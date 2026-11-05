@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useAuth } from "../context/AuthContext";
+import { API_URL, useAuth } from "../context/AuthContext";
 
 type ApiProperty = {
   id: string | number;
@@ -9,6 +9,7 @@ type ApiProperty = {
   price: number;
   bedrooms: number | null;
   image: string | null;
+  tour?: string | null;
   area_sqft: number;
   property_type: string;
 };
@@ -21,6 +22,7 @@ export type Property = {
   details: string;
   isSample: boolean;
   image: string | null;
+  tour: string | null;
 };
 
 export type Message = {
@@ -63,7 +65,12 @@ function makeCards(listings: ApiProperty[]): Property[] {
         ? "Independent house"
         : property.property_type === "plot" ? "Plot" : "Flat",
     ].filter(Boolean).join(" • "),
-    image: property.image,
+    image: property.image?.startsWith("/property-media/")
+      ? `${API_URL}${property.image}`
+      : property.image,
+    tour: property.tour?.startsWith("/property-media/")
+      ? `${API_URL}${property.tour}`
+      : null,
     isSample: typeof property.id === "number",
   }));
 }

@@ -6,7 +6,7 @@ export default function PanoramaView({ uri }: Props) {
   return (
     <iframe
       src={uri}
-      title="LEIA sample 360-degree panorama"
+      title="LEIA 360-degree panorama"
       allowFullScreen
       style={{
         width: "100%",

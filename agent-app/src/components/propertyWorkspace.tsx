@@ -10,6 +10,7 @@ import {
 } from "../lib/propertyApi";
 import { styles as s } from "../styles/property.styles";
 import PropertyDraftForm from "./PropertyDraftForm";
+import PropertyMedia from "./PropertyMedia";
 
 type Props = {
   authFetch: StaffFetch;
@@ -27,6 +28,8 @@ export default function PropertyWorkspace({
   const [listError, setListError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [editor, setEditor] = useState<{ id: string | null } | null>(null);
+  const [mediaDraft, setMediaDraft] = useState<PropertySummary | null>(null);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [success, setSuccess] = useState("");
   const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
@@ -114,7 +117,7 @@ export default function PropertyWorkspace({
           <Pressable
             accessibilityRole="button"
             style={s.button}
-            disabled={actionBusy || Boolean(review)}
+            disabled={actionBusy || Boolean(review || mediaDraft)}
             onPress={() => {
               setSuccess("");
               setEditor({ id: null });
@@ -124,7 +127,7 @@ export default function PropertyWorkspace({
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            disabled={loading || actionBusy}
+            disabled={loading || actionBusy || Boolean(mediaDraft)}
             style={[s.secondary, loading && s.disabled]}
             onPress={() => {
               setReview(null);
@@ -188,7 +191,7 @@ export default function PropertyWorkspace({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Edit draft: ${property.title}`}
-                disabled={Boolean(editor || review) || actionBusy}
+                disabled={Boolean(editor || review || mediaDraft) || actionBusy}
                 style={[s.secondary, Boolean(editor) && s.disabled]}
                 onPress={() => {
                   setSuccess("");
@@ -198,10 +201,45 @@ export default function PropertyWorkspace({
                 <Text style={s.secondaryText}>Edit draft</Text>
               </Pressable>
             ) : null}
+            {mediaDraft?.id === property.id ? (
+              <>
+                <PropertyMedia
+                  propertyId={property.id}
+                  version={mediaDraft.version}
+                  authFetch={authFetch}
+                  onBusyChange={(busy) => {
+                    setMediaBusy(busy);
+                    onBusyChange(busy);
+                  }}
+                  editable
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  style={s.secondary}
+                  disabled={mediaBusy}
+                  onPress={() => {
+                    setMediaDraft(null);
+                    setRefresh((value) => value + 1);
+                  }}
+                >
+                  <Text style={s.secondaryText}>Close photos</Text>
+                </Pressable>
+              </>
+            ) : property.status === "draft" ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Manage photos for ${property.title}`}
+                style={s.secondary}
+                disabled={Boolean(editor || review || mediaDraft) || actionBusy}
+                onPress={() => setMediaDraft(property)}
+              >
+                <Text style={s.secondaryText}>Manage photos</Text>
+              </Pressable>
+            ) : null}
             {property.status === "draft" ? (
               <Pressable
                 accessibilityRole="button"
-                disabled={Boolean(editor || review) || actionBusy}
+                disabled={Boolean(editor || review || mediaDraft) || actionBusy}
                 style={s.secondary}
                 onPress={() => void listingAction(property, "submit")}
               >
@@ -211,7 +249,7 @@ export default function PropertyWorkspace({
             {role === "admin" && property.status === "submitted" && review?.id !== property.id ? (
               <Pressable
                 accessibilityRole="button"
-                disabled={Boolean(editor || review) || actionBusy}
+                disabled={Boolean(editor || review || mediaDraft) || actionBusy}
                 style={s.secondary}
                 onPress={() => void listingAction(property, "review")}
               >
@@ -236,6 +274,12 @@ export default function PropertyWorkspace({
                 <Text style={s.muted}>
                   {review.listing_consent ? "Owner consent recorded" : "Owner consent missing"}
                 </Text>
+                <PropertyMedia
+                  propertyId={review.id}
+                  version={review.version}
+                  authFetch={authFetch}
+                  onBusyChange={onBusyChange}
+                />
                 <Pressable
                   accessibilityRole="button"
                   style={s.button}
