@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -54,6 +55,8 @@ async function refreshToken(): Promise<string | null> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const signingOut = useRef(false);
+  const sessionVersion = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -97,23 +100,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
-    const response = await fetch(`${API_URL}/auth/logout`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "X-LEIA-CSRF": "1" },
-    });
+    if (signingOut.current) return;
 
-    if (!response.ok) {
-      throw new Error("Logout failed. Please try again.");
+    signingOut.current = true;
+    try {
+      // Revoke the newest cookie if a request was already rotating it.
+      await refreshPromise?.catch(() => null);
+
+      const response = await fetch(`${API_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-LEIA-CSRF": "1" },
+      });
+
+      if (!response.ok) {
+        throw new Error("Could not sign out. Please try again.");
+      }
+
+      sessionVersion.current += 1;
+      setToken(null);
+    } finally {
+      signingOut.current = false;
     }
-
-    setToken(null);
   }
 
   async function authFetch(
     path: string,
     options: RequestInit = {},
   ): Promise<Response> {
+    const version = sessionVersion.current;
+
+    function checkSession() {
+      if (signingOut.current || version !== sessionVersion.current) {
+        throw new Error("Please log in again.");
+      }
+    }
+
+    async function renewSession() {
+      checkSession();
+      const accessToken = await refreshToken();
+      checkSession();
+      setToken(accessToken);
+      return accessToken;
+    }
+
+    checkSession();
+
     async function send(accessToken: string) {
       const headers = new Headers(options.headers);
       headers.set("Authorization", `Bearer ${accessToken}`);
@@ -128,8 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let accessToken = token;
 
     if (!accessToken) {
-      accessToken = await refreshToken();
-      setToken(accessToken);
+      accessToken = await renewSession();
     }
 
     if (!accessToken) {
@@ -140,8 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Renew once when the access token has expired.
     if (response.status === 401) {
-      accessToken = await refreshToken();
-      setToken(accessToken);
+      accessToken = await renewSession();
 
       if (!accessToken) {
         throw new Error("Your session expired. Please log in again.");
@@ -150,6 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       response = await send(accessToken);
 
       if (response.status === 401) {
+        checkSession();
         setToken(null);
         throw new Error("Please log in again.");
       }

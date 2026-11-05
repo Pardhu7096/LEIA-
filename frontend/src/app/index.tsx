@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useRef, useState, type ComponentRef } from "react";
 import {
   Image,
@@ -119,33 +120,36 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <Text style={styles.brand}>LEIA ✦</Text>
 
-        {!isDesktop && (
-          <Pressable
-            onPress={() => setHistoryOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Open chat history"
-            style={historyStyles.historyButton}
-          >
-            <Text style={historyStyles.buttonText}>
-              History
-            </Text>
-          </Pressable>
-        )}
+        <View style={styles.headerActions}>
+          {!isDesktop && (
+            <Pressable
+              onPress={() => setHistoryOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Open chat history"
+              style={historyStyles.historyButton}
+            >
+              <Text style={historyStyles.buttonText}>History</Text>
+            </Pressable>
+          )}
 
-        <Pressable
-          onPress={newSearch}
-          disabled={loading}
-          accessibilityRole="button"
-          accessibilityLabel="Start a new property search"
-          style={[
-            styles.newSearchButton,
-            loading && styles.buttonDisabled,
-          ]}
-        >
-          <Text style={styles.newSearchText}>
-            ＋ New search
-          </Text>
-        </Pressable>
+          <Pressable
+            onPress={newSearch}
+            disabled={loading}
+            accessibilityRole="button"
+            accessibilityLabel="Start a new property search"
+            style={[styles.newSearchButton, loading && styles.buttonDisabled]}
+          >
+            <Text style={styles.newSearchText}>＋ New search</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push("/profile")}
+            accessibilityRole="button"
+            style={styles.newSearchButton}
+          >
+            <Text style={styles.newSearchText}>Profile</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={historyStyles.layout}>

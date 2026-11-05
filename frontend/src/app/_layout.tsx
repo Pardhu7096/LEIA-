@@ -38,6 +38,7 @@ function Navigation() {
       <Stack.Protected guard={!!token}>
         <Stack.Screen name="index" />
         <Stack.Screen name="explore" />
+        <Stack.Screen name="profile" />
       </Stack.Protected>
     </Stack>
   );
