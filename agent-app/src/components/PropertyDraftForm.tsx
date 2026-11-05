@@ -1,3 +1,4 @@
+import type { StaffFetch } from "../lib/staffSession";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -18,8 +19,7 @@ import {
 import { styles as s } from "../styles/property.styles";
 
 type Props = {
-  apiUrl: string;
-  accessToken: string;
+  authFetch: StaffFetch;
   propertyId: string | null;
   onSaved: () => void;
   onCancel: () => void;
@@ -27,8 +27,7 @@ type Props = {
 };
 
 export default function PropertyDraftForm({
-  apiUrl,
-  accessToken,
+  authFetch,
   propertyId,
   onSaved,
   onCancel,
@@ -54,13 +53,9 @@ export default function PropertyDraftForm({
       setLoading(true);
       setLoadError("");
       try {
-        const response = await fetch(
-          `${apiUrl}/staff/properties/${propertyId}`,
-          {
-            signal: controller.signal,
-            headers: { Authorization: `Bearer ${accessToken}` },
-          },
-        );
+        const response = await authFetch(`/staff/properties/${propertyId}`, {
+          signal: controller.signal,
+        });
         const raw = await readResponse(response);
         const data: Record<string, unknown> = raw;
         if (
@@ -106,7 +101,7 @@ export default function PropertyDraftForm({
       active = false;
       controller.abort();
     };
-  }, [apiUrl, accessToken, propertyId, retry]);
+  }, [authFetch, propertyId, retry]);
 
   async function saveDraft() {
     if (
@@ -131,12 +126,11 @@ export default function PropertyDraftForm({
     setSaving(true);
     onBusyChange(true);
     try {
-      const response = await fetch(
-        `${apiUrl}/staff/properties${propertyId ? `/${propertyId}` : ""}`,
+      const response = await authFetch(
+        `/staff/properties${propertyId ? `/${propertyId}` : ""}`,
         {
           method: propertyId ? "PUT" : "POST",
           headers: {
-            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),

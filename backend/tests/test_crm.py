@@ -380,3 +380,68 @@ def test_private_write_failure_rolls_back_property_update(client):
             connection.execute(
                 "ALTER TABLE property_private_details DROP CONSTRAINT test_private_failure"
             )
+
+
+
+def test_staff_refresh_rotates_and_keeps_customer_session_separate(client, monkeypatch):
+    import auth
+
+    app, http, connect = client
+    app.include_router(auth.router)
+    monkeypatch.setattr(auth, "get_connection", connect)
+    agent = staff(connect, "agent")
+    customer = staff(connect, "customer")
+    password = "test-password-only"
+    with connect() as connection:
+        connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        connection.execute("""
+            CREATE TABLE auth_sessions (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users(id),
+                refresh_token_hash TEXT NOT NULL UNIQUE,
+                expires_at TIMESTAMPTZ NOT NULL,
+                revoked_at TIMESTAMPTZ
+            )
+        """)
+        connection.execute(
+            "UPDATE users SET password_hash = %s WHERE id IN (%s, %s)",
+            (auth.password_hasher.hash(password), agent["id"], customer["id"]),
+        )
+
+    def login(path, user):
+        return http.post(path, json={"email": user["email"], "password": password})
+
+    csrf = {"X-LEIA-CSRF": "1"}
+    assert login("/auth/staff/login", customer).status_code == 403
+    assert login("/auth/login", customer).status_code == 200
+    customer_cookie = http.cookies.get(auth.COOKIE_NAME)
+    assert login("/auth/staff/login", agent).status_code == 200
+    staff_cookie = http.cookies.get(auth.STAFF_COOKIE_NAME)
+    assert staff_cookie
+    assert http.cookies.get(auth.COOKIE_NAME) == customer_cookie
+    assert http.post("/auth/staff/refresh").status_code == 403
+
+    refreshed = http.post("/auth/staff/refresh", headers=csrf)
+    assert refreshed.status_code == 200
+    rotated_cookie = http.cookies.get(auth.STAFF_COOKIE_NAME)
+    assert rotated_cookie != staff_cookie
+    assert http.get("/staff/properties", headers={
+        "Authorization": f"Bearer {refreshed.json()['access_token']}",
+    }).status_code == 200
+
+    with TestClient(app) as isolated:
+        for replay in (staff_cookie, customer_cookie):
+            response = isolated.post("/auth/staff/refresh", headers={
+                **csrf, "Cookie": f"{auth.STAFF_COOKIE_NAME}={replay}",
+            })
+            assert response.status_code == 401
+
+    with connect() as connection:
+        connection.execute("UPDATE users SET role = 'customer' WHERE id = %s", (agent["id"],))
+    assert http.post("/auth/staff/refresh", headers=csrf).status_code == 403
+    assert http.post("/auth/staff/logout", headers=csrf).status_code == 200
+    assert http.cookies.get(auth.STAFF_COOKIE_NAME) is None
+    assert http.post("/auth/staff/refresh", headers={
+        **csrf, "Cookie": f"{auth.STAFF_COOKIE_NAME}={rotated_cookie}",
+    }).status_code == 401
+    assert http.post("/auth/refresh", headers=csrf).status_code == 200

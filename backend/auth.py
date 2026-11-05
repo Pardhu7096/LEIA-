@@ -30,6 +30,8 @@ ACCESS_TOKEN_SECONDS = 15 * 60
 SESSION_SECONDS = 7 * 24 * 60 * 60
 
 COOKIE_NAME = "leia_refresh"
+STAFF_COOKIE_NAME = "leia_staff_refresh"
+STAFF_ROLES = {"agent", "admin"}
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
 ALLOWED_ORIGINS = {
@@ -106,10 +108,17 @@ def create_access_token(user_id: UUID) -> dict:
     }
 
 
+def session_token_hash(token: str, staff: bool) -> str:
+    # A customer refresh token cannot be replayed through a staff cookie.
+    return token_hash(f"staff:{token}" if staff else token)
+
+
 def set_refresh_cookie(
     response: Response,
     token: str,
     expires_at: datetime,
+    *,
+    staff: bool,
 ):
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -117,13 +126,13 @@ def set_refresh_cookie(
     expires_at = expires_at.astimezone(timezone.utc)
 
     response.set_cookie(
-        key=COOKIE_NAME,
+        key=STAFF_COOKIE_NAME if staff else COOKIE_NAME,
         value=token,
         expires=expires_at,
         httponly=True,
         secure=COOKIE_SECURE,
         samesite="lax",
-        path="/auth",
+        path="/auth/staff" if staff else "/auth",
     )
 
     response.headers["Cache-Control"] = "no-store"
@@ -187,13 +196,24 @@ def login(
     response: Response,
     http_request: Request,
 ):
+    return start_session(request, response, http_request, staff=False)
+
+
+@router.post("/staff/login", response_model=TokenResponse)
+def staff_login(request: LoginRequest, response: Response, http_request: Request):
+    return start_session(request, response, http_request, staff=True)
+
+
+def start_session(
+    request: LoginRequest, response: Response, http_request: Request, *, staff: bool
+):
     check_origin(http_request)
     email = str(request.email).lower()
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT id, password_hash FROM users WHERE email = %s;",
+                "SELECT id, password_hash, role FROM users WHERE email = %s;",
                 (email,),
             )
 
@@ -209,6 +229,11 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if staff and user["role"] not in STAFF_ROLES:
+        raise HTTPException(
+            status_code=403, detail="Agent or admin access is required."
+        )
+
     refresh_token = secrets.token_urlsafe(48)
     expires_at = datetime.now(timezone.utc) + timedelta(
         seconds=SESSION_SECONDS
@@ -217,7 +242,9 @@ def login(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            previous_token = http_request.cookies.get(COOKIE_NAME)
+            previous_token = http_request.cookies.get(
+                STAFF_COOKIE_NAME if staff else COOKIE_NAME
+            )
 
             if previous_token:
                 cursor.execute(
@@ -227,7 +254,7 @@ def login(
                     WHERE refresh_token_hash = %s
                       AND revoked_at IS NULL;
                     """,
-                    (token_hash(previous_token),),
+                    (session_token_hash(previous_token, staff),),
                 )
 
             cursor.execute(
@@ -236,10 +263,10 @@ def login(
                     (user_id, refresh_token_hash, expires_at)
                 VALUES (%s, %s, %s);
                 """,
-                (user["id"], token_hash(refresh_token), expires_at),
+                (user["id"], session_token_hash(refresh_token, staff), expires_at),
             )
 
-    set_refresh_cookie(response, refresh_token, expires_at)
+    set_refresh_cookie(response, refresh_token, expires_at, staff=staff)
     return tokens
 
 
@@ -249,7 +276,18 @@ def refresh(
     response: Response,
     _: None = Depends(require_session_header),
 ):
-    current_token = request.cookies.get(COOKIE_NAME)
+    return rotate_session(request, response, staff=False)
+
+
+@router.post("/staff/refresh", response_model=TokenResponse)
+def staff_refresh(
+    request: Request, response: Response, _: None = Depends(require_session_header)
+):
+    return rotate_session(request, response, staff=True)
+
+
+def rotate_session(request: Request, response: Response, *, staff: bool):
+    current_token = request.cookies.get(STAFF_COOKIE_NAME if staff else COOKIE_NAME)
 
     if not current_token:
         raise HTTPException(
@@ -270,7 +308,7 @@ def refresh(
                   AND expires_at > CURRENT_TIMESTAMP
                 FOR UPDATE;
                 """,
-                (token_hash(current_token),),
+                (session_token_hash(current_token, staff),),
             )
 
             session = cursor.fetchone()
@@ -281,6 +319,16 @@ def refresh(
                     detail="Session expired or invalid. Please log in again.",
                 )
 
+            if staff:
+                cursor.execute(
+                    "SELECT role FROM users WHERE id = %s;", (session["user_id"],)
+                )
+                user = cursor.fetchone()
+                if user is None or user["role"] not in STAFF_ROLES:
+                    raise HTTPException(
+                        status_code=403, detail="Agent or admin access is required."
+                    )
+
             tokens = create_access_token(session["user_id"])
 
             cursor.execute(
@@ -289,11 +337,11 @@ def refresh(
                 SET refresh_token_hash = %s
                 WHERE id = %s;
                 """,
-                (token_hash(new_token), session["id"]),
+                (session_token_hash(new_token, staff), session["id"]),
             )
 
     # Preserve the original session expiry when rotating the token.
-    set_refresh_cookie(response, new_token, session["expires_at"])
+    set_refresh_cookie(response, new_token, session["expires_at"], staff=staff)
     return tokens
 
 
@@ -303,7 +351,18 @@ def logout(
     response: Response,
     _: None = Depends(require_session_header),
 ):
-    current_token = request.cookies.get(COOKIE_NAME)
+    return revoke_session(request, response, staff=False)
+
+
+@router.post("/staff/logout")
+def staff_logout(
+    request: Request, response: Response, _: None = Depends(require_session_header)
+):
+    return revoke_session(request, response, staff=True)
+
+
+def revoke_session(request: Request, response: Response, *, staff: bool):
+    current_token = request.cookies.get(STAFF_COOKIE_NAME if staff else COOKIE_NAME)
 
     if current_token:
         with get_connection() as connection:
@@ -315,12 +374,12 @@ def logout(
                     WHERE refresh_token_hash = %s
                       AND revoked_at IS NULL;
                     """,
-                    (token_hash(current_token),),
+                    (session_token_hash(current_token, staff),),
                 )
 
     response.delete_cookie(
-        key=COOKIE_NAME,
-        path="/auth",
+        key=STAFF_COOKIE_NAME if staff else COOKIE_NAME,
+        path="/auth/staff" if staff else "/auth",
         httponly=True,
         secure=COOKIE_SECURE,
         samesite="lax",
@@ -390,7 +449,7 @@ def get_current_user(
 
 
 def require_staff(user: dict = Depends(get_current_user)):
-    if user["role"] not in {"agent", "admin"}:
+    if user["role"] not in STAFF_ROLES:
         raise HTTPException(
             status_code=403,
             detail="Agent or admin access is required.",

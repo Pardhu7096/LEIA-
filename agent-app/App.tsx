@@ -11,12 +11,16 @@ import {
   View,
 } from "react-native";
 import PropertyWorkspace from "./src/components/propertyWorkspace";
+import { createStaffSession } from "./src/lib/staffSession";
 import { styles } from "./src/styles/auth.styles";
 
-// Local browser development.
-// The customer app uses localhost:8000.
-// Using 127.0.0.1 here keeps their browser refresh cookies separate.
-const API_URL = "http://127.0.0.1:8000";
+// Match the browser host so SameSite refresh cookies work across local ports.
+const API_URL =
+  Platform.OS === "web" &&
+  typeof window !== "undefined" &&
+  window.location.hostname === "localhost"
+    ? "http://localhost:8000"
+    : "http://127.0.0.1:8000";
 
 type StaffUser = {
   id: string;
@@ -25,10 +29,7 @@ type StaffUser = {
   role: "agent" | "admin";
 };
 
-type StaffSession = {
-  accessToken: string;
-  user: StaffUser;
-};
+type StaffSession = ReturnType<typeof createStaffSession> & { user: StaffUser };
 
 async function readResponse(response: Response) {
   const data = await response.json().catch(() => null);
@@ -63,18 +64,6 @@ function isStaffUser(value: unknown): value is StaffUser {
   );
 }
 
-async function endSession() {
-  const response = await fetch(`${API_URL}/auth/logout`, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "X-LEIA-CSRF": "1",
-    },
-  });
-
-  await readResponse(response);
-}
-
 export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -97,7 +86,7 @@ export default function App() {
     setError("");
 
     try {
-      const loginResponse = await fetch(`${API_URL}/auth/login`, {
+      const loginResponse = await fetch(`${API_URL}/auth/staff/login`, {
         method: "POST",
         credentials: "include",
         headers: {
@@ -118,32 +107,15 @@ export default function App() {
         throw new Error("The server did not return a valid access token.");
       }
 
-      // The backend checks the current database role.
-      const staffResponse = await fetch(`${API_URL}/auth/staff/me`, {
-        credentials: "include",
-        headers: {
-          Authorization: `Bearer ${tokens.access_token}`,
-        },
-      });
-
-      if (staffResponse.status === 403) {
-        await endSession();
-
-        throw new Error(
-          "This account has customer access. Ask your LEIA admin for agent access.",
-        );
-      }
-
+      const staffSession = createStaffSession(API_URL, tokens.access_token);
+      const staffResponse = await staffSession.authFetch("/auth/staff/me");
       const user: unknown = await readResponse(staffResponse);
 
       if (!isStaffUser(user)) {
         throw new Error("The server returned an invalid staff profile.");
       }
 
-      setSession({
-        accessToken: tokens.access_token,
-        user,
-      });
+      setSession({ ...staffSession, user });
 
       setPassword("");
     } catch (caught) {
@@ -161,14 +133,14 @@ export default function App() {
   }
 
   async function logout() {
-    if (busyRef.current || workspaceBusy) return;
+    if (!session || busyRef.current || workspaceBusy) return;
 
     busyRef.current = true;
     setBusy(true);
     setError("");
 
     try {
-      await endSession();
+      await session.logout();
       setSession(null);
       setPassword("");
     } catch {
@@ -217,8 +189,7 @@ export default function App() {
 
               <Text style={styles.email}>{session.user.email}</Text>
               <PropertyWorkspace
-                apiUrl={API_URL}
-                accessToken={session.accessToken}
+                authFetch={session.authFetch}
                 role={session.user.role}
                 onBusyChange={setWorkspaceBusy}
               />

@@ -23,6 +23,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test:forms
+      - run: node --experimental-strip-types --test tests/staffSession.test.mjs
   crm-api:
     runs-on: ubuntu-latest
     services:

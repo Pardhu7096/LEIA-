@@ -1,3 +1,4 @@
+import type { StaffFetch } from "../lib/staffSession";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
@@ -11,15 +12,13 @@ import { styles as s } from "../styles/property.styles";
 import PropertyDraftForm from "./PropertyDraftForm";
 
 type Props = {
-  apiUrl: string;
-  accessToken: string;
+  authFetch: StaffFetch;
   role: "agent" | "admin";
   onBusyChange: (busy: boolean) => void;
 };
 
 export default function PropertyWorkspace({
-  apiUrl,
-  accessToken,
+  authFetch,
   role,
   onBusyChange,
 }: Props) {
@@ -37,9 +36,8 @@ export default function PropertyWorkspace({
       setLoading(true);
       setListError("");
       try {
-        const response = await fetch(`${apiUrl}/staff/properties`, {
+        const response = await authFetch("/staff/properties", {
           signal: controller.signal,
-          headers: { Authorization: `Bearer ${accessToken}` },
         });
         const data: unknown = await readResponse(response);
         if (!Array.isArray(data) || !data.every(isProperty))
@@ -56,7 +54,7 @@ export default function PropertyWorkspace({
       active = false;
       controller.abort();
     };
-  }, [apiUrl, accessToken, refresh]);
+  }, [authFetch, refresh]);
 
   return (
     <View style={s.workspace}>
@@ -97,8 +95,7 @@ export default function PropertyWorkspace({
       ) : (
         <PropertyDraftForm
           key={editor.id || "new"}
-          apiUrl={apiUrl}
-          accessToken={accessToken}
+          authFetch={authFetch}
           propertyId={editor.id}
           onBusyChange={onBusyChange}
           onCancel={() => setEditor(null)}
