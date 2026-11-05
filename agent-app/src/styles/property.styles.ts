@@ -1,6 +1,10 @@
 import { StyleSheet } from "react-native";
 
 export const styles = StyleSheet.create({
+  formSection: {
+    gap: 16,
+    marginBottom: 12,
+  },
   workspace: {
     marginTop: 28,
     gap: 16,

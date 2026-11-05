@@ -80,6 +80,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [session, setSession] = useState<StaffSession | null>(null);
   const [busy, setBusy] = useState(false);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [error, setError] = useState("");
 
   const busyRef = useRef(false);
@@ -160,7 +161,7 @@ export default function App() {
   }
 
   async function logout() {
-    if (busyRef.current) return;
+    if (busyRef.current || workspaceBusy) return;
 
     busyRef.current = true;
     setBusy(true);
@@ -219,14 +220,18 @@ export default function App() {
                 apiUrl={API_URL}
                 accessToken={session.accessToken}
                 role={session.user.role}
+                onBusyChange={setWorkspaceBusy}
               />
 
               <Pressable
                 onPress={logout}
-                disabled={busy}
+                disabled={busy || workspaceBusy}
                 accessibilityRole="button"
                 accessibilityLabel="Sign out of LEIA agent workspace"
-                style={[styles.button, busy && styles.disabled]}
+                style={[
+                  styles.button,
+                  (busy || workspaceBusy) && styles.disabled,
+                ]}
               >
                 <Text style={styles.buttonText}>
                   {busy ? "Signing out…" : "Sign out"}
