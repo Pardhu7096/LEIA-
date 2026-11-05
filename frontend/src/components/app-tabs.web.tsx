@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import {
   Tabs,
   TabList,
@@ -33,7 +34,11 @@ export default function AppTabs() {
   );
 }
 
-export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps) {
+// The slot forwards its ref to the Pressable host element.
+type TabButtonProps = Omit<TabTriggerSlotProps, 'ref'> &
+  Pick<ComponentProps<typeof Pressable>, 'ref'>;
+
+export function TabButton({ children, isFocused, ...props }: TabButtonProps) {
   return (
     <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
       <ThemedView

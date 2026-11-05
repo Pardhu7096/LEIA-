@@ -85,10 +85,12 @@ function makeMessages(messages: SavedMessage[]): Message[] {
 }
 
 export function useSavedChat() {
-  const { authFetch, token, ready } = useAuth();
+  const { authFetch } = useAuth();
 
   const fetchRef = useRef(authFetch);
-  fetchRef.current = authFetch;
+  useEffect(() => {
+    fetchRef.current = authFetch;
+  }, [authFetch]);
 
   const busyRef = useRef(false);
 
@@ -98,8 +100,6 @@ export function useSavedChat() {
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState("");
-
-  const signedIn = Boolean(token);
 
   async function request(path: string, options?: RequestInit) {
     const response = await fetchRef.current(path, options);
@@ -117,21 +117,8 @@ export function useSavedChat() {
   }
 
   useEffect(() => {
-    if (!ready) return;
-
+    // The protected chat screen mounts with a session and unmounts at sign-out.
     let active = true;
-
-    if (!signedIn) {
-      setMessages([]);
-      setConversations([]);
-      setConversationId(null);
-      setError("");
-      setRestoring(false);
-      return;
-    }
-
-    setRestoring(true);
-    setError("");
 
     async function restore() {
       try {
@@ -188,7 +175,7 @@ export function useSavedChat() {
     return () => {
       active = false;
     };
-  }, [ready, signedIn]);
+  }, []);
 
   async function openConversation(id: string) {
     if (busyRef.current || restoring) return;
