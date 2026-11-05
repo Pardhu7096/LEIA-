@@ -3,23 +3,24 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 
 type ApiProperty = {
-  id: number;
+  id: string | number;
   title: string;
   location: string;
   price: number;
-  bedrooms: number;
-  image: string;
+  bedrooms: number | null;
+  image: string | null;
   area_sqft: number;
   property_type: string;
 };
 
 export type Property = {
-  id: number;
+  id: string | number;
   title: string;
   location: string;
   price: string;
   details: string;
-  image: string;
+  isSample: boolean;
+  image: string | null;
 };
 
 export type Message = {
@@ -54,13 +55,16 @@ function makeCards(listings: ApiProperty[]): Property[] {
     location: property.location,
     price: `₹${property.price.toLocaleString("en-IN")}`,
     details: [
-      `${property.bedrooms} BHK`,
+      property.property_type !== "plot" && property.bedrooms !== null
+        ? `${property.bedrooms} BHK`
+        : null,
       `${property.area_sqft.toLocaleString("en-IN")} sqft`,
       property.property_type === "independent_house"
         ? "Independent house"
-        : "Flat",
-    ].join(" • "),
+        : property.property_type === "plot" ? "Plot" : "Flat",
+    ].filter(Boolean).join(" • "),
     image: property.image,
+    isSample: typeof property.id === "number",
   }));
 }
 

@@ -48,43 +48,12 @@ app.add_middleware(
 )
 
 
-# Demo listings only — not verified properties.
-properties = [
-    {
-        "id": 1,
-        "title": "Sample Lankelapalem Flat",
-        "location": "Lankelapalem",
-        "price": 6200000,
-        "bedrooms": 2,
-        "image": (
-            "https://images.unsplash.com/"
-            "photo-1600210492486-724fe5c67fb0?w=800&q=80"
-        ),
-        "area_sqft": 1200,
-        "property_type": "flat",
-    },
-    {
-        "id": 2,
-        "title": "Sample Independent House",
-        "location": "Gajuwaka",
-        "price": 8500000,
-        "bedrooms": 3,
-        "image": (
-            "https://images.unsplash.com/"
-            "photo-1600596542815-ffad4c1539a9?w=800&q=80"
-        ),
-        "area_sqft": 1800,
-        "property_type": "independent_house",
-    },
-]
-
-
 class SearchFilters(BaseModel):
     bedrooms: int | None = Field(default=None, ge=1, le=20)
     min_price: int | None = Field(default=None, ge=0)
     max_price: int | None = Field(default=None, ge=0)
     location: str | None = Field(default=None, max_length=100)
-    property_type: Literal["flat", "independent_house"] | None = None
+    property_type: Literal["flat", "independent_house", "plot"] | None = None
 
 
 class SearchRequirements(SearchFilters):
@@ -129,7 +98,7 @@ Rules:
 - 1 lakh = 100000; 1 crore = 10000000.
 - Under, below, up to, and budget mean max_price.
 - Above and at least mean min_price.
-- Price limits are inclusive in this demo.
+- Price limits are inclusive.
 - For a price range, extract both limits.
 - A new maximum without an explicit minimum clears min_price.
 - A new minimum without an explicit maximum clears max_price.
@@ -140,10 +109,10 @@ Rules:
 - 2 BHK means bedrooms=2.
 - Apartment or flat means property_type="flat".
 - Independent house means property_type="independent_house".
+- Plot means property_type="plot".
 - Extract any requested locality, including places absent from inventory.
 - Normalize clear spelling variations of Gajuwaka and Lankelapalem.
-- All demo properties are in Visakhapatnam. A citywide Vizag or
-  Visakhapatnam request clears location to null.
+- Normalize Vizag to Visakhapatnam. Preserve a citywide request as a city name.
 - Never discard another explicitly requested city.
 - "Any location" clears location.
 - "Any bedrooms" clears bedrooms.
@@ -157,8 +126,8 @@ Rules:
 - If a request refers to previous cards or missing facts, clarify.
 - Ambiguous money units require clarification.
 - Supported filters: bedrooms, price range, one locality,
-  and flat versus independent house.
-- Unsupported requirements such as rent, plots, amenities, floor area,
+  and flat, independent house, or plot.
+- Unsupported requirements such as rent, amenities, floor area,
   alternative localities, or excluded localities require clarification.
 - Never silently ignore unsupported requirements.
 - For clarify, question contains one short explanation or question.
@@ -169,40 +138,30 @@ Rules:
 
 
 def filter_properties(filters: SearchFilters) -> list[dict]:
-    results = properties
-
-    if filters.bedrooms is not None:
-        results = [
-            item for item in results
-            if item["bedrooms"] == filters.bedrooms
-        ]
-
-    if filters.min_price is not None:
-        results = [
-            item for item in results
-            if item["price"] >= filters.min_price
-        ]
-
-    if filters.max_price is not None:
-        results = [
-            item for item in results
-            if item["price"] <= filters.max_price
-        ]
-
-    if filters.location:
-        location = filters.location.strip().casefold()
-        results = [
-            item for item in results
-            if item["location"].casefold() == location
-        ]
-
-    if filters.property_type:
-        results = [
-            item for item in results
-            if item["property_type"] == filters.property_type
-        ]
-
-    return results
+    location = filters.location.strip() if filters.location else None
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id::text AS id, title, concat_ws(', ', locality, city) AS location,
+                    price, bedrooms, area_sqft::double precision AS area_sqft,
+                    property_type, NULL::text AS image
+                FROM public.properties
+                WHERE status = 'approved' AND availability = 'available'
+                    AND (%(bedrooms)s::integer IS NULL OR bedrooms = %(bedrooms)s)
+                    AND (%(min_price)s::numeric IS NULL OR price >= %(min_price)s)
+                    AND (%(max_price)s::numeric IS NULL OR price <= %(max_price)s)
+                    AND (%(location)s::text IS NULL
+                        OR lower(locality) = lower(%(location)s)
+                        OR lower(city) = lower(%(location)s)
+                        OR lower(concat_ws(', ', locality, city)) = lower(%(location)s))
+                    AND (%(property_type)s::text IS NULL OR property_type = %(property_type)s)
+                ORDER BY reviewed_at DESC NULLS LAST, id
+                LIMIT 30
+                """,
+                {**filters.model_dump(), "location": location or None},
+            )
+            return cursor.fetchall()
 
 
 def generate_chat_reply(request: ChatRequest) -> dict:
@@ -247,7 +206,6 @@ def generate_chat_reply(request: ChatRequest) -> dict:
                 "reply": (
                     "Hi! I’m LEIA. Tell me your location, budget, "
                     "and preferred bedrooms, or update your current search. "
-                    "These listings are sample data."
                 ),
                 "properties": [],
                 "filters": previous_filters,
@@ -284,7 +242,7 @@ def generate_chat_reply(request: ChatRequest) -> dict:
 
         if not matches:
             reply = (
-                "No sample listings match those requirements. "
+                "No available listings match those requirements. "
                 "I’ve kept your search filters. "
                 "Would you like to change the budget or location?"
             )
@@ -292,8 +250,7 @@ def generate_chat_reply(request: ChatRequest) -> dict:
             count = len(matches)
             noun = "listing" if count == 1 else "listings"
             reply = (
-                f"I found {count} sample {noun} matching your updated search. "
-                "These are examples, not verified properties."
+                f"I found {count} {noun} matching your updated search."
             )
 
         return {
@@ -331,25 +288,8 @@ def health():
 
 
 @app.get("/properties")
-def get_properties(
-    bedrooms: int | None = None,
-    max_price: int | None = None,
-):
-    results = properties
-
-    if bedrooms is not None:
-        results = [
-            item for item in results
-            if item["bedrooms"] == bedrooms
-        ]
-
-    if max_price is not None:
-        results = [
-            item for item in results
-            if item["price"] <= max_price
-        ]
-
-    return {"properties": results}
+def get_properties(filters: SearchFilters = Depends()):
+    return {"properties": filter_properties(filters)}
 
 
 @app.post("/conversations", status_code=201)

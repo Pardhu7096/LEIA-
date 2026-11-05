@@ -445,3 +445,100 @@ def test_staff_refresh_rotates_and_keeps_customer_session_separate(client, monke
         **csrf, "Cookie": f"{auth.STAFF_COOKIE_NAME}={rotated_cookie}",
     }).status_code == 401
     assert http.post("/auth/refresh", headers=csrf).status_code == 200
+
+
+def test_approved_available_listings_reach_customer_search(database, monkeypatch):
+    from types import SimpleNamespace
+
+    import auth
+    import groq
+
+    def extract(**kwargs):
+        message = SimpleNamespace(
+            content=main.SearchRequirements(intent="search", **filters).model_dump_json()
+        )
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    monkeypatch.setenv("GROQ_API_KEY", "test-only")
+    monkeypatch.setattr(groq, "Groq", lambda **kwargs: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=extract))
+    ))
+    import main
+
+    connect = database
+    monkeypatch.setattr(main, "get_connection", connect)
+    monkeypatch.setattr(auth, "get_connection", connect)
+    owner, other, admin = [staff(connect, role) for role in ("agent", "agent", "admin")]
+
+    def headers(user):
+        token = create_access_token(user["id"])["access_token"]
+        return {"Authorization": f"Bearer {token}"}
+
+    filters = {"bedrooms": 3, "max_price": 8000000, "location": "Visakhapatnam"}
+    with TestClient(main.app) as http:
+        payload = {
+            "title": "Test Madhura Apartments",
+            "property_type": "flat",
+            "locality": "Madhurawada",
+            "city": "Visakhapatnam",
+            "price": 7500000,
+            "area_sqft": 1130,
+            "bedrooms": 3,
+            "owner_phone": "private phone",
+            "agent_notes": "private notes",
+            "listing_consent": False,
+        }
+        created = http.post("/staff/properties", json=payload, headers=headers(owner))
+        assert created.status_code == 201, created.text
+        listing = created.json()
+        path = f"/staff/properties/{listing['id']}"
+
+        def results():
+            response = http.get("/properties", params=filters)
+            assert response.status_code == 200, response.text
+            return response.json()["properties"]
+
+        assert results() == []
+        version = {"version": listing["version"]}
+        assert http.post(f"{path}/submit", json=version, headers=headers(other)).status_code == 404
+        assert http.post(f"{path}/submit", json=version, headers=headers(owner)).status_code == 422
+        assert http.post(f"{path}/approve", json=version, headers=headers(admin)).status_code == 409
+
+        updated = http.put(
+            path,
+            json={**payload, **version, "listing_consent": True},
+            headers=headers(owner),
+        )
+        assert updated.status_code == 200, updated.text
+        submitted = http.post(
+            f"{path}/submit", json={"version": updated.json()["version"]}, headers=headers(owner)
+        )
+        assert submitted.status_code == 200, submitted.text
+        assert submitted.json()["status"] == "submitted"
+        assert results() == []
+        assert http.post(f"{path}/approve", json=version, headers=headers(admin)).status_code == 409
+        version = {"version": submitted.json()["version"]}
+        assert http.post(f"{path}/approve", json=version, headers=headers(owner)).status_code == 403
+        approved = http.post(f"{path}/approve", json=version, headers=headers(admin))
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["status"] == "approved"
+
+        cards = results()
+        assert cards == [{
+            "id": listing["id"],
+            "title": payload["title"],
+            "property_type": "flat",
+            "location": "Madhurawada, Visakhapatnam",
+            "price": 7500000,
+            "area_sqft": 1130,
+            "bedrooms": 3,
+            "image": None,
+        }]
+
+        reply = main.generate_chat_reply(main.ChatRequest(message="3 BHK under 80 lakh in Vizag"))
+        assert reply["properties"] == cards
+        with connect() as connection:
+            connection.execute(
+                "UPDATE properties SET availability = 'sold' WHERE id = %s", (listing["id"],)
+            )
+        assert results() == []

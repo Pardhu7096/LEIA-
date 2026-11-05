@@ -7,6 +7,7 @@ export type PropertySummary = {
   city: string | null;
   status: string;
   availability: string;
+  version: number;
 };
 
 export async function readResponse(response: Response) {
@@ -53,6 +54,8 @@ export function isProperty(value: unknown): value is PropertySummary {
   const item = value as Record<string, unknown>;
   return (
     typeof item.id === "string" &&
+    typeof item.version === "number" &&
+    Number.isSafeInteger(item.version) &&
     typeof item.title === "string" &&
     typeof item.property_type === "string" &&
     typeof item.status === "string" &&

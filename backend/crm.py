@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from auth import require_staff
+from auth import require_admin, require_staff
 from database import get_connection
 from fastapi import APIRouter, Depends, HTTPException, Response
 from property_models import (
@@ -10,6 +10,7 @@ from property_models import (
     PropertyUpdate,
 )
 from psycopg import sql
+from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(prefix="/staff/properties", tags=["Agent CRM"])
 PRIVATE_FIELDS = ("owner_name", "owner_phone", "listing_consent", "agent_notes")
@@ -183,3 +184,86 @@ def update_property(
             )
             save_private_details(cursor, property_id, payload)
             return read_details(cursor, property_id, user)
+
+
+class ListingTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1)
+
+
+def transition_property(property_id, version, user, *, publish: bool):
+    expected = "submitted" if publish else "draft"
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT id FROM public.properties
+                   WHERE id = %s AND (created_by = %s OR %s = 'admin')
+                   FOR UPDATE;""",
+                (property_id, user["id"], user["role"]),
+            )
+            if cursor.fetchone() is None:
+                raise HTTPException(status_code=404, detail="Property not found.")
+            record = read_details(cursor, property_id, user)
+            if record["status"] != expected or record["version"] != version:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This listing changed. Refresh it and review the current version.",
+                )
+
+            missing = [
+                label
+                for field, label in (
+                    ("title", "title"), ("locality", "locality"), ("city", "city"),
+                )
+                if not (record[field] or "").strip()
+            ]
+            for field, label in (("price", "price"), ("area_sqft", "area")):
+                if record[field] is None:
+                    missing.append(label)
+            if record["property_type"] != "plot" and record["bedrooms"] is None:
+                missing.append("bedroom count")
+            if not record["listing_consent"]:
+                missing.append("owner consent to publish")
+            if record["availability"] != "available":
+                missing.append("available status")
+            if missing:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Complete these items first: {', '.join(missing)}.",
+                )
+
+            if publish:
+                cursor.execute(
+                    """UPDATE public.properties
+                       SET status = 'approved', reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP,
+                           updated_at = CURRENT_TIMESTAMP, version = version + 1
+                       WHERE id = %s;""",
+                    (user["id"], property_id),
+                )
+            else:
+                cursor.execute(
+                    """UPDATE public.properties
+                       SET status = 'submitted', submitted_at = CURRENT_TIMESTAMP,
+                           updated_at = CURRENT_TIMESTAMP, version = version + 1
+                       WHERE id = %s;""",
+                    (property_id,),
+                )
+            return read_details(cursor, property_id, user)
+
+
+@router.post("/{property_id}/submit", response_model=PropertySummary)
+def submit_property(
+    property_id: UUID, payload: ListingTransition, response: Response,
+    user=Depends(require_staff),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return transition_property(property_id, payload.version, user, publish=False)
+
+
+@router.post("/{property_id}/approve", response_model=PropertySummary)
+def approve_property(
+    property_id: UUID, payload: ListingTransition, response: Response,
+    user=Depends(require_admin),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return transition_property(property_id, payload.version, user, publish=True)

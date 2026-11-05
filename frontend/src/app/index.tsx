@@ -219,18 +219,18 @@ export default function HomeScreen() {
                   <View style={styles.cards}>
                     {message.properties.map((property) => (
                       <View key={property.id} style={styles.card}>
-                        <Image
-                          source={{ uri: property.image }}
-                          style={styles.photo}
-                          accessibilityLabel={
-                            `Illustrative stock photo for ${property.title}`
-                          }
-                        />
+                        {property.image ? (
+                          <Image
+                            source={{ uri: property.image }}
+                            style={styles.photo}
+                            accessibilityLabel={`Photo for ${property.title}`}
+                          />
+                        ) : null}
 
                         <View style={styles.cardBody}>
-                          <Text style={styles.sample}>
-                            SAMPLE LISTING
-                          </Text>
+                          {property.isSample ? (
+                            <Text style={styles.sample}>SAMPLE LISTING</Text>
+                          ) : null}
 
                           <Text style={styles.price}>
                             {property.price}
@@ -248,18 +248,20 @@ export default function HomeScreen() {
                             {property.details}
                           </Text>
 
-                          <Pressable
-                            onPress={() => setSelectedProperty(property)}
-                            accessibilityRole="button"
-                            accessibilityLabel={
-                              `Open sample 360-degree tour for ${property.title}`
-                            }
-                            style={tourStyles.button}
-                          >
-                            <Text style={tourStyles.buttonText}>
-                              View sample 360° ↗
-                            </Text>
-                          </Pressable>
+                          {property.isSample ? (
+                            <Pressable
+                              onPress={() => setSelectedProperty(property)}
+                              accessibilityRole="button"
+                              accessibilityLabel={
+                                `Open sample 360-degree tour for ${property.title}`
+                              }
+                              style={tourStyles.button}
+                            >
+                              <Text style={tourStyles.buttonText}>
+                                View sample 360° ↗
+                              </Text>
+                            </Pressable>
+                          ) : null}
                         </View>
                       </View>
                     ))}

@@ -1,5 +1,5 @@
 import type { StaffFetch } from "../lib/staffSession";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import {
@@ -28,6 +28,44 @@ export default function PropertyWorkspace({
   const [refresh, setRefresh] = useState(0);
   const [editor, setEditor] = useState<{ id: string | null } | null>(null);
   const [success, setSuccess] = useState("");
+  const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const actionInFlight = useRef(false);
+  const [review, setReview] = useState<
+    (PropertySummary & { area_sqft: string | number; bedrooms: number | null; listing_consent: boolean }) | null
+  >(null);
+
+  async function listingAction(property: PropertySummary, action: "review" | "submit" | "approve") {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
+    setActionBusy(true);
+    onBusyChange(true);
+    setActionError(null);
+    setSuccess("");
+    try {
+      const path = `/staff/properties/${property.id}`;
+      if (action === "review") {
+        const details = await readResponse(await authFetch(path));
+        if (details.status !== "submitted") throw new Error("Refresh the list to see the current status.");
+        setReview(details);
+        return;
+      }
+      await readResponse(await authFetch(`${path}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: property.version }),
+      }));
+      setReview(null);
+      setSuccess(action === "submit" ? "Submitted for admin review." : "Published to LEIA search.");
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setActionError({ id: property.id, message: errorMessage(error) });
+    } finally {
+      actionInFlight.current = false;
+      setActionBusy(false);
+      onBusyChange(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -76,6 +114,7 @@ export default function PropertyWorkspace({
           <Pressable
             accessibilityRole="button"
             style={s.button}
+            disabled={actionBusy || Boolean(review)}
             onPress={() => {
               setSuccess("");
               setEditor({ id: null });
@@ -85,9 +124,13 @@ export default function PropertyWorkspace({
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            disabled={loading}
+            disabled={loading || actionBusy}
             style={[s.secondary, loading && s.disabled]}
-            onPress={() => setRefresh((value) => value + 1)}
+            onPress={() => {
+              setReview(null);
+              setActionError(null);
+              setRefresh((value) => value + 1);
+            }}
           >
             <Text style={s.secondaryText}>Refresh list</Text>
           </Pressable>
@@ -145,7 +188,7 @@ export default function PropertyWorkspace({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Edit draft: ${property.title}`}
-                disabled={Boolean(editor)}
+                disabled={Boolean(editor || review) || actionBusy}
                 style={[s.secondary, Boolean(editor) && s.disabled]}
                 onPress={() => {
                   setSuccess("");
@@ -154,6 +197,62 @@ export default function PropertyWorkspace({
               >
                 <Text style={s.secondaryText}>Edit draft</Text>
               </Pressable>
+            ) : null}
+            {property.status === "draft" ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={Boolean(editor || review) || actionBusy}
+                style={s.secondary}
+                onPress={() => void listingAction(property, "submit")}
+              >
+                <Text style={s.secondaryText}>Submit for review</Text>
+              </Pressable>
+            ) : null}
+            {role === "admin" && property.status === "submitted" && review?.id !== property.id ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={Boolean(editor || review) || actionBusy}
+                style={s.secondary}
+                onPress={() => void listingAction(property, "review")}
+              >
+                <Text style={s.secondaryText}>Review listing</Text>
+              </Pressable>
+            ) : null}
+            {actionError?.id === property.id ? (
+              <Text style={s.error} accessibilityRole="alert">
+                {actionError.message}
+              </Text>
+            ) : null}
+            {review?.id === property.id ? (
+              <View style={s.panel}>
+                <Text style={s.propertyTitle}>Customer listing preview</Text>
+                <Text style={s.muted}>{review.title}</Text>
+                <Text style={s.muted}>{review.locality}, {review.city}</Text>
+                <Text style={s.muted}>₹{review.price?.toLocaleString("en-IN")} · {review.area_sqft} sq ft</Text>
+                <Text style={s.muted}>
+                  {review.property_type.replace(/_/g, " ")}
+                  {review.property_type !== "plot" ? ` · ${review.bedrooms} BHK` : ""}
+                </Text>
+                <Text style={s.muted}>
+                  {review.listing_consent ? "Owner consent recorded" : "Owner consent missing"}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  style={s.button}
+                  disabled={actionBusy || !review.listing_consent}
+                  onPress={() => void listingAction(review, "approve")}
+                >
+                  <Text style={s.buttonText}>Approve and publish</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  style={s.secondary}
+                  disabled={actionBusy}
+                  onPress={() => setReview(null)}
+                >
+                  <Text style={s.secondaryText}>Close review</Text>
+                </Pressable>
+              </View>
             ) : null}
           </View>
         ))
