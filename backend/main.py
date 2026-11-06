@@ -148,9 +148,11 @@ def filter_properties(filters: SearchFilters) -> list[dict]:
                 SELECT p.id::text AS id, title, concat_ws(', ', locality, city) AS location,
                     price, bedrooms, area_sqft::double precision AS area_sqft,
                     p.property_type,
-                    '/property-media/' || cover.id AS image,
+                    '/property-media/' || coalesce(gallery_cover.id, cover.id) AS image,
                     '/property-media/' || panorama.id || '/tour' AS tour
                 FROM public.properties AS p
+                LEFT JOIN public.property_media AS gallery_cover
+                    ON gallery_cover.property_id = p.id AND gallery_cover.is_gallery_cover
                 LEFT JOIN public.property_media AS cover
                     ON cover.property_id = p.id AND cover.kind = 'cover'
                 LEFT JOIN public.property_media AS panorama

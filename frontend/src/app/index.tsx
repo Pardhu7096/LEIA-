@@ -12,6 +12,7 @@ import {
 } from "react-native";
 
 import PanoramaView from "../components/PanoramaView";
+import PropertyGallery from "../components/PropertyGallery";
 import { useSavedChat, type Property } from "../hooks/useSavedChat";
 import { styles } from "../styles/chat.styles";
 import { historyStyles } from "../styles/history.styles";
@@ -43,6 +44,7 @@ export default function HomeScreen() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] =
     useState<Property | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
 
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
 
@@ -56,8 +58,9 @@ export default function HomeScreen() {
     if (saved) setInput("");
   }
 
-  function closeTour() {
+  function closeListing() {
     setSelectedProperty(null);
+    setShowGallery(false);
   }
 
   function newSearch() {
@@ -66,14 +69,14 @@ export default function HomeScreen() {
     newConversation();
     setInput("");
     setHistoryOpen(false);
-    closeTour();
+    closeListing();
   }
 
   function selectConversation(id: string) {
     if (loading) return;
 
     setInput("");
-    closeTour();
+    closeListing();
     setHistoryOpen(false);
     void openConversation(id);
   }
@@ -252,6 +255,20 @@ export default function HomeScreen() {
                             {property.details}
                           </Text>
 
+                          {!property.isSample && (
+                            <Pressable
+                              onPress={() => {
+                                setSelectedProperty(property);
+                                setShowGallery(true);
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={`View room photos for ${property.title}`}
+                              style={tourStyles.button}
+                            >
+                              <Text style={tourStyles.buttonText}>View property photos</Text>
+                            </Pressable>
+                          )}
+
                           {property.isSample || property.tour ? (
                             <Pressable
                               onPress={() => setSelectedProperty(property)}
@@ -353,7 +370,7 @@ export default function HomeScreen() {
       <Modal
         visible={selectedProperty !== null}
         animationType="slide"
-        onRequestClose={closeTour}
+        onRequestClose={closeListing}
       >
         <View style={tourStyles.screen}>
           <View style={tourStyles.header}>
@@ -362,9 +379,9 @@ export default function HomeScreen() {
             </Text>
 
             <Pressable
-              onPress={closeTour}
+              onPress={closeListing}
               accessibilityRole="button"
-              accessibilityLabel="Close 360-degree tour"
+              accessibilityLabel={showGallery ? "Close property photos" : "Close 360-degree tour"}
               style={tourStyles.close}
             >
               <Text style={tourStyles.closeText}>
@@ -373,21 +390,19 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
-          {selectedProperty?.isSample ? (
-            <Text style={tourStyles.notice}>
-              Sample panorama — unrelated to this property.
-            </Text>
-          ) : null}
-
-          <View style={tourStyles.viewer}>
-            {selectedProperty !== null && (
-              <PanoramaView uri={selectedProperty.tour ?? SAMPLE_TOUR_URL} />
-            )}
-          </View>
-
-          <Text style={tourStyles.help}>
-            Drag to look around. Use + and − to zoom.
-          </Text>
+          {selectedProperty && (showGallery ? (
+            <PropertyGallery key={selectedProperty.id} property={selectedProperty} onTour={() => setShowGallery(false)} />
+          ) : (
+            <>
+              {selectedProperty.isSample && (
+                <Text style={tourStyles.notice}>Sample panorama — unrelated to this property.</Text>
+              )}
+              <View style={tourStyles.viewer}>
+                <PanoramaView uri={selectedProperty.tour ?? SAMPLE_TOUR_URL} />
+              </View>
+              <Text style={tourStyles.help}>Drag to look around. Use + and − to zoom.</Text>
+            </>
+          ))}
         </View>
       </Modal>
     </View>

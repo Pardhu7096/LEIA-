@@ -554,6 +554,46 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
         assert http.get(public_tour).status_code == 404
         assert http.get(cover_path, headers=headers(other)).status_code == 404
 
+        gallery = f"{path}/gallery"
+        public_gallery = f"/properties/{listing['id']}/gallery"
+        assert http.get(gallery).status_code == 401
+        assert http.get(gallery, headers=headers(other)).status_code == 404
+        assert http.post(gallery, params={**version, "room": "  "}, content=cover, headers=headers(owner)).status_code == 422
+        photo_ids = []
+        for room in ("Bedroom 1", "bedroom 1", "Kitchen", "Balcony"):
+            upload = http.post(
+                gallery, params={**version, "room": room}, content=cover, headers=headers(owner),
+            )
+            assert upload.status_code == 201, upload.text
+            assert http.post(
+                gallery, params={**version, "room": room}, content=cover, headers=headers(owner),
+            ).status_code == 409
+            photo_ids.append(upload.json()["id"])
+            version = {"version": upload.json()["version"]}
+
+        bedroom, second_bedroom, kitchen, balcony = photo_ids
+        assert http.get(public_gallery).status_code == 404
+        assert http.get(f"/property-media/{kitchen}").status_code == 404
+        assert http.get(f"{gallery}/{kitchen}", headers=headers(other)).status_code == 404
+        assert http.get(f"{gallery}/{kitchen}", headers=headers(admin)).status_code == 200
+        assert http.put(f"{gallery}/{uuid4()}/cover", params=version, headers=headers(owner)).status_code == 404
+        assert http.get(gallery, headers=headers(owner)).json()[0]["is_gallery_cover"]
+
+        def edit_photo(method, suffix):
+            response = http.request(method, f"{gallery}/{suffix}", params=version, headers=headers(owner))
+            assert response.status_code == 200, response.text
+            version.update(version=response.json()["version"])
+
+        edit_photo("PUT", f"{balcony}/cover")
+        edit_photo("DELETE", balcony)
+        assert http.get(gallery, headers=headers(owner)).json()[0]["is_gallery_cover"]
+        edit_photo("PUT", f"{kitchen}/cover")
+        assert http.get(gallery, headers=headers(admin)).json() == [
+            {"id": bedroom, "room": "Bedroom 1", "is_gallery_cover": False},
+            {"id": second_bedroom, "room": "Bedroom 1", "is_gallery_cover": False},
+            {"id": kitchen, "room": "Kitchen", "is_gallery_cover": True},
+        ]
+
         submitted = http.post(f"{path}/submit", json=version, headers=headers(owner))
         assert submitted.status_code == 200, submitted.text
         assert submitted.json()["status"] == "submitted"
@@ -585,9 +625,14 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
             "price": 7500000,
             "area_sqft": 1130,
             "bedrooms": 3,
-            "image": public_cover,
+            "image": f"/property-media/{kitchen}",
             "tour": public_tour,
         }]
+        assert http.get(public_gallery).json() == [
+            {"id": photo_id, "room": room, "image": f"/property-media/{photo_id}"}
+            for photo_id, room in zip((bedroom, second_bedroom, kitchen), ("Bedroom 1", "Bedroom 1", "Kitchen"))
+        ]
+        assert http.get(f"/property-media/{kitchen}").headers["content-type"] == "image/jpeg"
         assert http.get(public_cover).headers["content-type"] == "image/jpeg"
         assert http.get(public_tour).status_code == 200
         assert http.get(public_tour.removesuffix("/tour")).headers["content-type"] == "image/jpeg"
@@ -601,3 +646,5 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
         assert results() == []
         assert http.get(public_cover).status_code == 404
         assert http.get(public_tour).status_code == 404
+        assert http.get(public_gallery).status_code == 404
+        assert http.get(f"/property-media/{kitchen}").status_code == 404
