@@ -1,11 +1,12 @@
 import json
 import os
+import re
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from groq import APIError, Groq, RateLimitError
 from psycopg.types.json import Jsonb
@@ -17,7 +18,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from auth import get_current_user, router as auth_router
 from crm import router as crm_router
 from database import get_connection
-from nearby_places import router as nearby_router
+from nearby_places import router as nearby_router, shortest_temple_walk
 from property_media import router as media_router
 
 
@@ -69,6 +70,18 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     filters: SearchFilters = Field(default_factory=SearchFilters)
     conversation_id: UUID | None = None
+
+
+RESET_REPLY = "Let’s start a fresh search. What location and budget do you have in mind?"
+NO_MATCHES_REPLY = (
+    "No available listings match those requirements. "
+    "I’ve kept your search filters. Would you like to change the budget or location?"
+)
+TEMPLE_WALK_QUESTION = re.compile(
+    r"\b(?:how far|walking (?:distance|time)|how long (?:is|to walk|does it take to walk))\b"
+    r"[^.!?]*\b(?:nearest|closest) (?:hindu )?temple\b",
+    re.IGNORECASE,
+)
 
 
 EXTRACTION_PROMPT = """
@@ -205,10 +218,7 @@ def generate_chat_reply(request: ChatRequest) -> dict:
 
         if requirements.intent == "reset":
             return {
-                "reply": (
-                    "Let’s start a fresh search. "
-                    "What location and budget do you have in mind?"
-                ),
+                "reply": RESET_REPLY,
                 "properties": [],
                 "filters": SearchFilters().model_dump(),
             }
@@ -253,11 +263,7 @@ def generate_chat_reply(request: ChatRequest) -> dict:
         matches = filter_properties(updated_filters)
 
         if not matches:
-            reply = (
-                "No available listings match those requirements. "
-                "I’ve kept your search filters. "
-                "Would you like to change the budget or location?"
-            )
+            reply = NO_MATCHES_REPLY
         else:
             count = len(matches)
             noun = "listing" if count == 1 else "listings"
@@ -382,9 +388,64 @@ def get_conversation(
     }
 
 
+def temple_walk_reply(cursor, conversation_id: UUID, message: str) -> tuple[str, str]:
+    cursor.execute(
+        """
+        SELECT properties
+        FROM chat_messages
+        WHERE conversation_id = %s AND role = 'assistant'
+            AND (properties <> '[]'::jsonb OR content IN (%s, %s))
+        ORDER BY id DESC
+        LIMIT 1;
+        """,
+        (conversation_id, RESET_REPLY, NO_MATCHES_REPLY),
+    )
+    last_search = cursor.fetchone()
+    properties = last_search["properties"] if last_search else []
+    if not properties:
+        reply = "Search for a property in this chat first, then ask about the nearest temple."
+        return reply, reply
+
+    selection = re.search(r"\blisting\s+(\d{1,2})\b", message, re.IGNORECASE)
+    index = int(selection[1]) - 1 if selection else 0
+    if not 0 <= index < len(properties) or (not selection and len(properties) > 1):
+        reply = (
+            f"Which listing should I use? Add a listing number from 1 to {len(properties)} "
+            "to your question, such as ‘How far is the nearest temple from listing 1?’"
+        )
+        return reply, reply
+
+    try:
+        property_id = UUID(str(properties[index]["id"]))
+    except (KeyError, ValueError):
+        reply = "Choose an available listing with a map pin to check walking distance."
+        return reply, reply
+
+    cursor.execute(
+        """
+        SELECT title, latitude, longitude FROM public.properties
+        WHERE id = %s AND status = 'approved' AND availability = 'available';
+        """,
+        (property_id,),
+    )
+    listing = cursor.fetchone()
+    if listing is None:
+        reply = "That listing is no longer available. Try a new property search."
+        return reply, reply
+    if listing["latitude"] is None or listing["longitude"] is None:
+        reply = f"{listing['title']} doesn’t have a map pin yet."
+        return reply, reply
+
+    walk = shortest_temple_walk(listing["latitude"], listing["longitude"])
+    # Save the conversation without persisting Google Maps content.
+    saved = "Ask again to get a fresh walking estimate from Google Maps."
+    return f"From {listing['title']}\n\n{walk}", saved
+
+
 @app.post("/chat")
 def chat(
     request: ChatRequest,
+    response: Response,
     user: dict = Depends(get_current_user),
 ):
     message = request.message.strip()
@@ -426,12 +487,18 @@ def chat(
                 conversation["filters"]
             )
 
-            result = generate_chat_reply(
-                ChatRequest(
-                    message=message,
-                    filters=saved_filters,
+            if TEMPLE_WALK_QUESTION.search(message):
+                response.headers["Cache-Control"] = "no-store"
+                reply, saved_reply = temple_walk_reply(cursor, request.conversation_id, message)
+                result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
+            else:
+                result = generate_chat_reply(
+                    ChatRequest(
+                        message=message,
+                        filters=saved_filters,
+                    )
                 )
-            )
+                saved_reply = result["reply"]
 
             updated_filters = SearchFilters.model_validate(
                 result["filters"]
@@ -457,7 +524,7 @@ def chat(
                 """,
                 (
                     request.conversation_id,
-                    result["reply"],
+                    saved_reply,
                     Jsonb(result["properties"]),
                 ),
             )

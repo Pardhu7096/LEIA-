@@ -674,3 +674,84 @@ def test_nearby_search_uses_property_pin_and_returns_property_origin(monkeypatch
     assert url.hostname == "www.google.com"
     assert parse_qs(url.query)["origin"] == ["17.7,83.3"]
     assert parse_qs(url.query)["destination_place_id"] == ["bus-1"]
+
+
+def test_temple_chat_returns_shortest_walk_without_saving_map_data(monkeypatch):
+    import importlib
+    import io
+    import json
+    from unittest.mock import MagicMock
+
+    import nearby_places
+
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "test-places-key")
+    monkeypatch.setenv("GOOGLE_ROUTES_API_KEY", "test-routes-key")
+    for name in os.environ:
+        if name.lower().endswith("_proxy"):
+            monkeypatch.delenv(name)
+    main = importlib.import_module("main")
+    conversation_id, user_id, first_id, second_id = (uuid4() for _ in range(4))
+    filters = main.SearchFilters(location="Madhurawada").model_dump()
+    cursor = MagicMock()
+    connection = MagicMock()
+    connection.__enter__.return_value.cursor.return_value.__enter__.return_value = cursor
+    monkeypatch.setattr(main, "get_connection", lambda: connection)
+    calls = []
+
+    def google(request, timeout):
+        payload = json.loads(request.data)
+        calls.append(request.full_url)
+        if len(calls) == 1:
+            assert payload["includedTypes"] == ["hindu_temple"]
+            return io.BytesIO(b'{"places":[{"id":"first","displayName":{"text":"First temple"}},'
+                              b'{"id":"second","displayName":{"text":"Shiva temple"}}]}')
+
+        assert request.full_url == "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
+        assert request.get_header("X-goog-api-key") == "test-routes-key"
+        assert payload["travelMode"] == "WALK"
+        assert payload["origins"][0]["waypoint"]["location"]["latLng"] == {
+            "latitude": 17.7, "longitude": 83.3,
+        }
+        assert payload["destinations"] == [
+            {"waypoint": {"placeId": "first"}}, {"waypoint": {"placeId": "second"}},
+        ]
+        return io.BytesIO(b'[{"destinationIndex":1,"condition":"ROUTE_EXISTS","status":{},'
+                          b'"distanceMeters":900,"duration":"780s"},'
+                          b'{"condition":"ROUTE_EXISTS","status":{},'
+                          b'"distanceMeters":1200,"duration":"900s"}]')
+
+    monkeypatch.setattr(nearby_places, "urlopen", google)
+    auth_override = {main.get_current_user: lambda: {"id": user_id}}
+    monkeypatch.setattr(main.app, "dependency_overrides", auth_override)
+    properties = [{"id": str(first_id)}, {"id": str(second_id)}]
+    with TestClient(main.app) as http:
+        cursor.fetchone.side_effect = [
+            {"filters": filters}, {"properties": properties}, {"id": 1}, {"id": 2},
+        ]
+        response = http.post("/chat", json={
+            "message": "How far is the nearest temple?", "conversation_id": str(conversation_id),
+        })
+        assert response.status_code == 200
+        assert "Which listing" in response.json()["reply"]
+        assert not calls
+
+        cursor.reset_mock()
+        cursor.fetchone.side_effect = [
+            {"filters": filters}, {"properties": properties},
+            {"title": "SS Castle", "latitude": 17.7, "longitude": 83.3}, {"id": 3}, {"id": 4},
+        ]
+        response = http.post("/chat", json={
+            "message": "How far is the nearest temple from listing 2?",
+            "conversation_id": str(conversation_id),
+        })
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    result = response.json()
+    assert "Shiva temple · 900 m · about 13 minutes on foot" in result["reply"]
+    assert result["filters"] == filters
+    queries = [call.args for call in cursor.execute.call_args_list]
+    assert queries[2][1] == (second_id,)
+    assert queries[4][1][1] == "Ask again to get a fresh walking estimate from Google Maps."
+    assert len(calls) == 2

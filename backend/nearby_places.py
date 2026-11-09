@@ -23,30 +23,39 @@ PLACE_TYPES: dict[Category, list[str]] = {
 }
 
 
-def find_places(latitude: float, longitude: float, category: Category, api_key: str) -> list[dict]:
+def google_maps_request(url: str, payload: dict, api_key: str, field_mask: str):
     request = Request(
-        "https://places.googleapis.com/v1/places:searchNearby",
-        data=json.dumps({
-            "includedTypes": PLACE_TYPES[category],
-            "maxResultCount": 5,
-            "rankPreference": "DISTANCE",
-            "locationRestriction": {
-                "circle": {
-                    "center": {"latitude": latitude, "longitude": longitude},
-                    "radius": 5000,
-                },
-            },
-        }).encode("utf-8"),
+        url,
+        data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
             "X-Goog-Api-Key": api_key,
-            "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.attributions",
+            "X-Goog-FieldMask": field_mask,
         },
         method="POST",
     )
+    with urlopen(request, timeout=5) as upstream:
+        return json.load(upstream)
+
+
+def find_places(latitude: float, longitude: float, category: Category, api_key: str) -> list[dict]:
     try:
-        with urlopen(request, timeout=5) as upstream:
-            result = json.load(upstream)
+        result = google_maps_request(
+            "https://places.googleapis.com/v1/places:searchNearby",
+            {
+                "includedTypes": PLACE_TYPES[category],
+                "maxResultCount": 5,
+                "rankPreference": "DISTANCE",
+                "locationRestriction": {
+                    "circle": {
+                        "center": {"latitude": latitude, "longitude": longitude},
+                        "radius": 5000,
+                    },
+                },
+            },
+            api_key,
+            "places.id,places.displayName,places.formattedAddress,places.attributions",
+        )
     except (URLError, OSError, ValueError) as exc:
         raise HTTPException(502, "Google Maps could not load nearby places. Try again.") from exc
 
@@ -71,6 +80,76 @@ def find_places(latitude: float, longitude: float, category: Category, api_key: 
             "attributions": place.get("attributions", []),
         })
     return places
+
+
+def shortest_temple_walk(latitude: float, longitude: float) -> str:
+    places_key = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
+    routes_key = os.getenv("GOOGLE_ROUTES_API_KEY", "").strip()
+    if not places_key or not routes_key:
+        return "Walking estimates are unavailable right now. You can still check the listing’s Nearby places."
+
+    unavailable = "I couldn’t get a walking estimate from Google Maps. Please try again."
+    try:
+        temples = find_places(latitude, longitude, "temples", places_key)
+        if not temples:
+            return "Google Maps found no Hindu temples within 5 km of this listing."
+
+        routes = google_maps_request(
+            "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix",
+            {
+                "origins": [{"waypoint": {"location": {"latLng": {
+                    "latitude": latitude, "longitude": longitude,
+                }}}}],
+                "destinations": [{"waypoint": {"placeId": temple["id"]}} for temple in temples],
+                "travelMode": "WALK",
+            },
+            routes_key,
+            "destinationIndex,status,condition,distanceMeters,duration",
+        )
+        if not isinstance(routes, list) or not routes:
+            return unavailable
+        walks = []
+        failed = False
+        for route in routes:
+            if route.get("status", {}).get("code", 0):
+                failed = True
+                continue
+            if route.get("condition") == "ROUTE_NOT_FOUND":
+                continue
+            if route.get("condition") != "ROUTE_EXISTS":
+                return unavailable
+            distance = route.get("distanceMeters", 0)
+            seconds = float(route["duration"].removesuffix("s"))
+            index = route.get("destinationIndex", 0)
+            if (
+                not isinstance(index, int) or not 0 <= index < len(temples)
+                or not isinstance(distance, int) or distance < 0
+                or not 0 <= seconds < float("inf")
+            ):
+                return unavailable
+            walks.append((distance, seconds, index))
+    except (HTTPException, URLError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return unavailable
+
+    if not walks:
+        if failed:
+            return unavailable
+        return "Google Maps found nearby temples but couldn’t find a walking route to any of them."
+
+    distance, seconds, index = min(walks)
+    temple = temples[index]
+    distance_label = f"{distance:,} m" if distance < 1000 else f"{distance / 1000:.1f} km"
+    minutes = max(1, round(seconds / 60))
+    minute_label = "minute" if minutes == 1 else "minutes"
+    credits = "".join(
+        f"\n{credit['provider']} {credit.get('providerUri', '')}".rstrip()
+        for credit in temple["attributions"] if credit.get("provider")
+    )
+    return (
+        f"Shortest walking route found: {temple['name']} · {distance_label} · "
+        f"about {minutes} {minute_label} on foot.\n\n"
+        f"Google Maps{credits}\nWalking routes may be missing sidewalks or pedestrian paths."
+    )
 
 
 @router.get("/{property_id}/nearby")
