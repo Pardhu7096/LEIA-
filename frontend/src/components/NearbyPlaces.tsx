@@ -78,14 +78,6 @@ export default function NearbyPlaces({ propertyId }: { propertyId: string }) {
     void Linking.openURL(url).catch(() => setError("Could not open the link."));
   }
 
-  function openDirections(url: string) {
-    if (Platform.OS === "web" && url.startsWith("https://www.google.com/maps/dir/")) {
-      window.location.assign(url);
-      return;
-    }
-    openLink(url);
-  }
-
   return (
     <ScrollView contentContainerStyle={{ padding: 20, gap: 12 }}>
       <Text accessibilityRole="header" style={styles.title}>Nearby places</Text>
@@ -144,9 +136,19 @@ export default function NearbyPlaces({ propertyId }: { propertyId: string }) {
                   />
                 )}
               </>
+            ) : Platform.OS === "web" ? (
+              <a
+                href={place.directions_url.startsWith("https://") ? place.directions_url : undefined}
+                target="_self"
+                aria-label={`Directions to ${place.name}`}
+                style={{ display: "block", textDecoration: "none" }}>
+                <View style={tourStyles.button}>
+                  <Text style={tourStyles.buttonText}>Directions in Google Maps</Text>
+                </View>
+              </a>
             ) : (
               <Pressable accessibilityRole="link" accessibilityLabel={`Directions to ${place.name}`}
-                style={tourStyles.button} onPress={() => openDirections(place.directions_url)}>
+                style={tourStyles.button} onPress={() => openLink(place.directions_url)}>
                 <Text style={tourStyles.buttonText}>Directions in Google Maps</Text>
               </Pressable>
             )}
