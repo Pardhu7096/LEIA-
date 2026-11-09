@@ -811,4 +811,17 @@ def test_selected_property_facts_and_walk_use_only_that_listing(monkeypatch):
         assert cursor.execute.call_args_list[3].args[1][1] == (
             "Ask again to get a fresh walking estimate from Google Maps."
         )
+        for index in (2, 3):
+            assert cursor.execute.call_args_list[index].args[1][-1] == property_id
+
+        cursor.reset_mock()
+        cursor.fetchone.side_effect = [{"id": conversation_id, "title": "Test", "filters": filters}]
+        cursor.fetchall.return_value = [
+            {"id": 1, "role": "user", "content": "Show homes", "properties": [], "property_id": None},
+            {"id": 2, "role": "user", "content": "How big is it?", "properties": [], "property_id": property_id},
+        ]
+        restored = http.get(f"/conversations/{conversation_id}")
+        assert restored.status_code == 200
+        assert "property_id" in cursor.execute.call_args_list[1].args[0]
+        assert [message["property_id"] for message in restored.json()["messages"]] == [None, str(property_id)]
     search.assert_not_called()

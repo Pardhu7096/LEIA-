@@ -30,6 +30,7 @@ export type Message = {
   role: "user" | "assistant";
   text: string;
   properties?: Property[];
+  propertyId?: string | null;
 };
 
 type SavedMessage = {
@@ -37,6 +38,7 @@ type SavedMessage = {
   role: "user" | "assistant";
   content: string;
   properties: ApiProperty[];
+  property_id?: string | null;
 };
 
 type Conversation = {
@@ -81,6 +83,7 @@ function makeMessages(messages: SavedMessage[]): Message[] {
     role: message.role,
     text: message.content,
     properties: makeCards(message.properties ?? []),
+    propertyId: message.property_id,
   }));
 }
 
@@ -243,11 +246,13 @@ export function useSavedChat() {
           id: String(data.user_message_id),
           role: "user",
           text: message,
+          propertyId,
         },
         {
           id: String(data.assistant_message_id),
           role: "assistant",
           text: data.reply,
+          propertyId,
           properties: makeCards(data.properties ?? []),
         },
       ]);

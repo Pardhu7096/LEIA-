@@ -11,19 +11,11 @@ import {
   View,
 } from "react-native";
 
-import PanoramaView from "../components/PanoramaView";
-import NearbyPlaces from "../components/NearbyPlaces";
-import PropertyGallery from "../components/PropertyGallery";
+import PropertyView from "../components/PropertyView";
 import { useSavedChat, type Property } from "../hooks/useSavedChat";
 import { styles } from "../styles/chat.styles";
 import { historyStyles } from "../styles/history.styles";
 import { tourStyles } from "../styles/tour.styles";
-
-const SAMPLE_TOUR_URL =
-  "https://cdn.pannellum.org/2.5/pannellum.htm" +
-  "#panorama=" +
-  encodeURIComponent("https://pannellum.org/images/alma.jpg") +
-  "&autoLoad=true";
 
 export default function HomeScreen() {
   const {
@@ -45,8 +37,6 @@ export default function HomeScreen() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] =
     useState<Property | null>(null);
-  const [chatProperty, setChatProperty] = useState<Property | null>(null);
-  const [listingView, setListingView] = useState<"tour" | "gallery" | "nearby">("tour");
 
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
 
@@ -55,27 +45,19 @@ export default function HomeScreen() {
 
     if (!text || loading) return;
 
-    const saved = await send(text, chatProperty ? String(chatProperty.id) : undefined);
+    const saved = await send(text);
 
     if (saved) setInput("");
   }
 
   function closeListing() {
     setSelectedProperty(null);
-    setListingView("tour");
-  }
-
-  function openListing(property: Property, view: "tour" | "gallery" | "nearby") {
-    if (!property.isSample && !loading) setChatProperty(property);
-    setSelectedProperty(property);
-    setListingView(view);
   }
 
   function newSearch() {
     if (loading) return;
 
     newConversation();
-    setChatProperty(null);
     setInput("");
     setHistoryOpen(false);
     closeListing();
@@ -85,7 +67,6 @@ export default function HomeScreen() {
     if (loading) return;
 
     setInput("");
-    setChatProperty(null);
     closeListing();
     setHistoryOpen(false);
     void openConversation(id);
@@ -211,7 +192,7 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {messages.map((message) => (
+            {messages.filter((message) => !message.propertyId).map((message) => (
               <View key={message.id} style={styles.messageGroup}>
                 {message.role === "assistant" && (
                   <Text style={styles.assistantLabel}>
@@ -235,7 +216,14 @@ export default function HomeScreen() {
                 {!!message.properties?.length && (
                   <View style={styles.cards}>
                     {message.properties.map((property) => (
-                      <View key={property.id} style={styles.card}>
+                      <Pressable
+                        key={property.id}
+                        style={styles.card}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${property.title}`}
+                        disabled={loading}
+                        onPress={() => setSelectedProperty(property)}
+                      >
                         {property.image ? (
                           <Image
                             source={{ uri: property.image }}
@@ -243,79 +231,21 @@ export default function HomeScreen() {
                             accessibilityLabel={`Photo for ${property.title}`}
                           />
                         ) : null}
-
                         <View style={styles.cardBody}>
                           {property.isSample ? (
                             <Text style={styles.sample}>SAMPLE LISTING</Text>
                           ) : null}
-
-                          <Text style={styles.price}>
-                            {property.price}
-                          </Text>
-
-                          {property.isSample ? (
-                            <Text style={styles.title}>{property.title}</Text>
-                          ) : (
-                            <Pressable
-                              onPress={() => setChatProperty(property)}
-                              disabled={loading}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Ask about ${property.title}`}
-                              accessibilityState={{ selected: chatProperty?.id === property.id }}
-                            >
-                              <Text style={styles.title}>{property.title}</Text>
-                              <Text style={styles.details}>
-                                {chatProperty?.id === property.id ? "Selected for chat" : "Ask about this property"}
-                              </Text>
-                            </Pressable>
-                          )}
-
-                          <Text style={styles.subtitle}>
-                            {property.location}
-                          </Text>
-
-                          <Text style={styles.details}>
-                            {property.details}
-                          </Text>
-
-                          {!property.isSample && (
-                            <Pressable
-                              onPress={() => openListing(property, "gallery")}
-                              accessibilityRole="button"
-                              accessibilityLabel={`View room photos for ${property.title}`}
-                              style={tourStyles.button}
-                            >
-                              <Text style={tourStyles.buttonText}>View property photos</Text>
-                            </Pressable>
-                          )}
-
-                          {!property.isSample && (
-                            <Pressable
-                              onPress={() => openListing(property, "nearby")}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Nearby places for ${property.title}`}
-                              style={tourStyles.button}
-                            >
-                              <Text style={tourStyles.buttonText}>Nearby places</Text>
-                            </Pressable>
-                          )}
-
-                          {property.isSample || property.tour ? (
-                            <Pressable
-                              onPress={() => openListing(property, "tour")}
-                              accessibilityRole="button"
-                              accessibilityLabel={
-                                `Open 360-degree tour for ${property.title}`
-                              }
-                              style={tourStyles.button}
-                            >
-                              <Text style={tourStyles.buttonText}>
-                                {property.isSample ? "View sample 360° ↗" : "View 360° tour ↗"}
-                              </Text>
-                            </Pressable>
-                          ) : null}
+                          <Text style={styles.price}>{property.price}</Text>
+                          <Text style={styles.title}>{property.title}</Text>
+                          <Text style={styles.subtitle}>{property.location}</Text>
+                          <Text style={styles.details}>{property.details}</Text>
+                          <View style={tourStyles.button}>
+                            <Text style={tourStyles.buttonText}>
+                              {property.isSample ? "Open sample tour" : "Open property"}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
+                      </Pressable>
                     ))}
                   </View>
                 )}
@@ -335,31 +265,15 @@ export default function HomeScreen() {
           </ScrollView>
 
           <View style={styles.bottom}>
-            {chatProperty ? (
-              <View style={styles.propertyContext}>
-                <Text style={[styles.details, { flex: 1 }]} accessibilityLiveRegion="polite">
-                  Asking about {chatProperty.title}
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear selected property"
-                  disabled={loading}
-                  onPress={() => setChatProperty(null)}
-                  style={tourStyles.close}
-                >
-                  <Text style={tourStyles.closeText}>Clear</Text>
-                </Pressable>
-              </View>
-            ) : null}
             <View style={styles.composer}>
               <TextInput
                 value={input}
                 onChangeText={setInput}
                 editable={!loading}
-                placeholder={chatProperty ? "Ask about this property…" : "Describe your ideal home…"}
+                placeholder="Describe your ideal home…"
                 placeholderTextColor="#879389"
                 style={styles.input}
-                accessibilityLabel={chatProperty ? "Your question about the selected property" : "Your property search"}
+                accessibilityLabel="Your property search"
                 returnKeyType="search"
                 onSubmitEditing={search}
               />
@@ -368,14 +282,14 @@ export default function HomeScreen() {
                 onPress={search}
                 disabled={loading || !input.trim()}
                 accessibilityRole="button"
-                accessibilityLabel={chatProperty ? "Ask about the selected property" : "Search properties"}
+                accessibilityLabel="Search properties"
                 style={[
                   styles.button,
                   (loading || !input.trim()) && styles.buttonDisabled,
                 ]}
               >
                 <Text style={styles.buttonText}>
-                  {loading ? "Loading…" : chatProperty ? "Ask ↗" : "Search ↗"}
+                  {loading ? "Loading…" : "Search ↗"}
                 </Text>
               </Pressable>
             </View>
@@ -414,46 +328,17 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      <Modal
-        visible={selectedProperty !== null}
-        animationType="slide"
-        onRequestClose={closeListing}
-      >
-        <View style={tourStyles.screen}>
-          <View style={tourStyles.header}>
-            <Text style={tourStyles.title}>
-              {selectedProperty?.title ?? "Sample tour"}
-            </Text>
-
-            <Pressable
-              onPress={closeListing}
-              accessibilityRole="button"
-              accessibilityLabel="Close listing view"
-              style={tourStyles.close}
-            >
-              <Text style={tourStyles.closeText}>
-                Close ✕
-              </Text>
-            </Pressable>
-          </View>
-
-          {selectedProperty && (listingView === "nearby" ? (
-            <NearbyPlaces key={selectedProperty.id} propertyId={String(selectedProperty.id)} />
-          ) : listingView === "gallery" ? (
-            <PropertyGallery key={selectedProperty.id} property={selectedProperty} onTour={() => setListingView("tour")} />
-          ) : (
-            <>
-              {selectedProperty.isSample && (
-                <Text style={tourStyles.notice}>Sample panorama — unrelated to this property.</Text>
-              )}
-              <View style={tourStyles.viewer}>
-                <PanoramaView uri={selectedProperty.tour ?? SAMPLE_TOUR_URL} />
-              </View>
-              <Text style={tourStyles.help}>Drag to look around. Use + and − to zoom.</Text>
-            </>
-          ))}
-        </View>
-      </Modal>
+      {selectedProperty ? (
+        <PropertyView
+          key={selectedProperty.id}
+          property={selectedProperty}
+          messages={messages.filter((message) => message.propertyId === String(selectedProperty.id))}
+          loading={loading}
+          error={error}
+          onAsk={send}
+          onClose={closeListing}
+        />
+      ) : null}
     </View>
   );
 }

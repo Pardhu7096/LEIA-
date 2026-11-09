@@ -392,7 +392,7 @@ def get_conversation(
 
             cursor.execute(
                 """
-                SELECT id, role, content, properties
+                SELECT id, role, content, properties, property_id
                 FROM chat_messages
                 WHERE conversation_id = %s
                 ORDER BY id;
@@ -595,25 +595,26 @@ def chat(
             cursor.execute(
                 """
                 INSERT INTO chat_messages
-                    (conversation_id, role, content, properties)
-                VALUES (%s, 'user', %s, %s)
+                    (conversation_id, role, content, properties, property_id)
+                VALUES (%s, 'user', %s, %s, %s)
                 RETURNING id;
                 """,
-                (request.conversation_id, message, Jsonb([])),
+                (request.conversation_id, message, Jsonb([]), request.property_id),
             )
             user_message_id = cursor.fetchone()["id"]
 
             cursor.execute(
                 """
                 INSERT INTO chat_messages
-                    (conversation_id, role, content, properties)
-                VALUES (%s, 'assistant', %s, %s)
+                    (conversation_id, role, content, properties, property_id)
+                VALUES (%s, 'assistant', %s, %s, %s)
                 RETURNING id;
                 """,
                 (
                     request.conversation_id,
                     saved_reply,
                     Jsonb(result["properties"]),
+                    request.property_id,
                 ),
             )
             assistant_message_id = cursor.fetchone()["id"]

@@ -26,10 +26,34 @@ export const tourStyles = StyleSheet.create({
     gap: 12,
   },
   title: {
-    flex: 1,
     fontSize: 18,
     fontWeight: "700",
     color: "#294B3C",
+  },
+  propertySummary: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  summaryDetails: {
+    color: "#64765B",
+    fontSize: 13,
+  },
+  propertyTabs: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+  },
+  selectedTab: {
+    backgroundColor: "#D0E0C7",
+  },
+  viewerArea: {
+    flex: 1,
+  },
+  hidden: {
+    display: "none",
   },
   close: {
     paddingVertical: 10,

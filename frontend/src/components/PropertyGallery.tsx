@@ -9,10 +9,7 @@ import { tourStyles } from "../styles/tour.styles";
 type Photo = { id: string; room: string; image: string };
 type Room = { title: string; data: Photo[] };
 
-export default function PropertyGallery({ property, onTour }: {
-  property: Property;
-  onTour: () => void;
-}) {
+export default function PropertyGallery({ property }: { property: Property }) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "unavailable" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
@@ -52,18 +49,6 @@ export default function PropertyGallery({ property, onTour }: {
       sections={rooms}
       keyExtractor={(photo) => photo.id}
       contentContainerStyle={{ padding: 20, gap: 12 }}
-      ListHeaderComponent={
-        <View style={{ gap: 6 }}>
-          <Text style={styles.price}>{property.price}</Text>
-          <Text style={styles.subtitle}>{property.location}</Text>
-          <Text style={styles.details}>{property.details}</Text>
-          {status === "ready" && property.tour && (
-            <Pressable accessibilityRole="button" style={tourStyles.button} onPress={onTour}>
-              <Text style={tourStyles.buttonText}>View 360° tour</Text>
-            </Pressable>
-          )}
-        </View>
-      }
       ListEmptyComponent={
         <View>
           {status === "ready" && property.image && (
