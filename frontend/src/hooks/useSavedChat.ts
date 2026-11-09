@@ -203,7 +203,7 @@ export function useSavedChat() {
     }
   }
 
-  async function send(text: string): Promise<boolean> {
+  async function send(text: string, propertyId?: string): Promise<boolean> {
     const message = text.trim();
 
     if (!message || busyRef.current || restoring) return false;
@@ -233,6 +233,7 @@ export function useSavedChat() {
         body: JSON.stringify({
           message,
           conversation_id: id,
+          property_id: propertyId,
         }),
       });
 

@@ -82,17 +82,18 @@ def find_places(latitude: float, longitude: float, category: Category, api_key: 
     return places
 
 
-def shortest_temple_walk(latitude: float, longitude: float) -> str:
+def shortest_nearby_walk(latitude: float, longitude: float, category: Category) -> str:
     places_key = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
     routes_key = os.getenv("GOOGLE_ROUTES_API_KEY", "").strip()
     if not places_key or not routes_key:
         return "Walking estimates are unavailable right now. You can still check the listing’s Nearby places."
 
     unavailable = "I couldn’t get a walking estimate from Google Maps. Please try again."
+    category_name = "Hindu temples" if category == "temples" else category.replace("_", " ")
     try:
-        temples = find_places(latitude, longitude, "temples", places_key)
-        if not temples:
-            return "Google Maps found no Hindu temples within 5 km of this listing."
+        places = find_places(latitude, longitude, category, places_key)
+        if not places:
+            return f"Google Maps found no {category_name} within 5 km of this listing."
 
         routes = google_maps_request(
             "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix",
@@ -100,7 +101,7 @@ def shortest_temple_walk(latitude: float, longitude: float) -> str:
                 "origins": [{"waypoint": {"location": {"latLng": {
                     "latitude": latitude, "longitude": longitude,
                 }}}}],
-                "destinations": [{"waypoint": {"placeId": temple["id"]}} for temple in temples],
+                "destinations": [{"waypoint": {"placeId": place["id"]}} for place in places],
                 "travelMode": "WALK",
             },
             routes_key,
@@ -122,7 +123,7 @@ def shortest_temple_walk(latitude: float, longitude: float) -> str:
             seconds = float(route["duration"].removesuffix("s"))
             index = route.get("destinationIndex", 0)
             if (
-                not isinstance(index, int) or not 0 <= index < len(temples)
+                not isinstance(index, int) or not 0 <= index < len(places)
                 or not isinstance(distance, int) or distance < 0
                 or not 0 <= seconds < float("inf")
             ):
@@ -134,19 +135,19 @@ def shortest_temple_walk(latitude: float, longitude: float) -> str:
     if not walks:
         if failed:
             return unavailable
-        return "Google Maps found nearby temples but couldn’t find a walking route to any of them."
+        return f"Google Maps found nearby {category_name} but couldn’t find a walking route to any of them."
 
     distance, seconds, index = min(walks)
-    temple = temples[index]
+    place = places[index]
     distance_label = f"{distance:,} m" if distance < 1000 else f"{distance / 1000:.1f} km"
     minutes = max(1, round(seconds / 60))
     minute_label = "minute" if minutes == 1 else "minutes"
     credits = "".join(
         f"\n{credit['provider']} {credit.get('providerUri', '')}".rstrip()
-        for credit in temple["attributions"] if credit.get("provider")
+        for credit in place["attributions"] if credit.get("provider")
     )
     return (
-        f"Shortest walking route found: {temple['name']} · {distance_label} · "
+        f"Shortest walking route found: {place['name']} · {distance_label} · "
         f"about {minutes} {minute_label} on foot.\n\n"
         f"Google Maps{credits}\nWalking routes may be missing sidewalks or pedestrian paths."
     )

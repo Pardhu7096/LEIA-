@@ -18,7 +18,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from auth import get_current_user, router as auth_router
 from crm import router as crm_router
 from database import get_connection
-from nearby_places import router as nearby_router, shortest_temple_walk
+from nearby_places import Category, router as nearby_router, shortest_nearby_walk
 from property_media import router as media_router
 
 
@@ -70,6 +70,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     filters: SearchFilters = Field(default_factory=SearchFilters)
     conversation_id: UUID | None = None
+    property_id: UUID | None = None
 
 
 RESET_REPLY = "Let’s start a fresh search. What location and budget do you have in mind?"
@@ -81,6 +82,24 @@ TEMPLE_WALK_QUESTION = re.compile(
     r"\b(?:how far|walking (?:distance|time)|how long (?:is|to walk|does it take to walk))\b"
     r"[^.!?]*\b(?:nearest|closest) (?:hindu )?temple\b",
     re.IGNORECASE,
+)
+NEARBY_QUESTION = re.compile(r"\b(?:nearby|nearest|closest|near|how far|walk\w*|distance|how long)\b", re.I)
+NEARBY_CATEGORIES: dict[Category, str] = {
+    "schools": r"\bschools?\b",
+    "hospitals": r"\bhospitals?\b",
+    "temples": r"\btemples?\b",
+    "groceries": r"\b(?:grocer(?:y|ies)|supermarkets?)\b",
+    "bus_stops": r"\bbus (?:stops?|stations?)\b",
+}
+PROPERTY_FACTS = (
+    ("area", r"\b(?:area|size|how (?:big|large)|how much space|sq\.?\s*ft|square feet)\b", "Area"),
+    ("price", r"\b(?:price|cost|how much|asking price)\b", "Asking price"),
+    ("bedrooms", r"\b(?:bedrooms?|bhk)\b", "Bedrooms"),
+    ("bathrooms", r"\b(?:bathrooms?|toilets?|washrooms?)\b", "Bathrooms"),
+    ("location", r"\b(?:where|location|locality|neighbou?rhood|address|city)\b", "Location"),
+    ("property_type", r"\b(?:type|apartment|flat|independent house|plot)\b", "Property type"),
+    ("car_parking_spaces", r"\b(?:parking|garage)\b", "Car parking spaces"),
+    ("maintenance_monthly", r"\bmaintenance\b", "Monthly maintenance"),
 )
 
 
@@ -432,14 +451,79 @@ def temple_walk_reply(cursor, conversation_id: UUID, message: str) -> tuple[str,
     if listing is None:
         reply = "That listing is no longer available. Try a new property search."
         return reply, reply
+    return listing_walk_reply(listing, "temples")
+
+
+def listing_walk_reply(listing: dict, category: Category) -> tuple[str, str]:
     if listing["latitude"] is None or listing["longitude"] is None:
         reply = f"{listing['title']} doesn’t have a map pin yet."
         return reply, reply
 
-    walk = shortest_temple_walk(listing["latitude"], listing["longitude"])
+    walk = shortest_nearby_walk(listing["latitude"], listing["longitude"], category)
     # Save the conversation without persisting Google Maps content.
     saved = "Ask again to get a fresh walking estimate from Google Maps."
     return f"From {listing['title']}\n\n{walk}", saved
+
+
+def selected_listing_reply(cursor, property_id: UUID, message: str) -> tuple[str, str]:
+    cursor.execute(
+        """
+        SELECT title, latitude, longitude, area_sqft, price, bedrooms, bathrooms,
+            concat_ws(', ', nullif(locality, ''), nullif(city, '')) AS location,
+            property_type, car_parking_spaces, maintenance_monthly
+        FROM public.properties
+        WHERE id = %s AND status = 'approved' AND availability = 'available';
+        """,
+        (property_id,),
+    )
+    listing = cursor.fetchone()
+    if listing is None:
+        reply = "The selected listing is no longer available. Choose another property to continue."
+        return reply, reply
+
+    if NEARBY_QUESTION.search(message):
+        categories = [category for category, pattern in NEARBY_CATEGORIES.items()
+                      if re.search(pattern, message, re.I)]
+        if re.search(r"\b(?:government|public|private)\b", message, re.I):
+            reply = f"I can check nearby places from {listing['title']}, but I can’t verify ownership types."
+            return reply, reply
+        if len(categories) == 1:
+            return listing_walk_reply(listing, categories[0])
+        reply = (
+            f"For {listing['title']}, ask about one nearby category at a time. "
+            "I can check walking estimates for schools, hospitals, temples, groceries, or bus stops."
+        )
+        return reply, reply
+
+    area = listing["area_sqft"]
+    facts = {
+        **listing,
+        "area": f"{area:,.2f}".rstrip("0").rstrip(".") + " sq ft" if area is not None else None,
+        "property_type": listing["property_type"].replace("_", " ").capitalize(),
+    }
+    requested = [(field, label) for field, pattern, label in PROPERTY_FACTS
+                 if re.search(pattern, message, re.I)]
+    if re.search(r"\b(?:maintenance|parking|rent|deposit|how much space)\b", message, re.I):
+        requested = [(field, label) for field, label in requested if field != "price"]
+    if re.fullmatch(r"(?:tell me about (?:it|this property)|(?:show|property|listing) details)[.!?]?", message, re.I):
+        requested = [(field, label) for field, _, label in PROPERTY_FACTS]
+
+    if not requested:
+        reply = (
+            f"I don’t have that detail for {listing['title']}. "
+            "You can ask about its price, size, bedrooms, bathrooms, location, parking, "
+            "maintenance, or nearby places."
+        )
+        return reply, reply
+
+    lines = []
+    for field, label in requested:
+        value = facts[field]
+        if field in {"price", "maintenance_monthly"} and value is not None:
+            value = f"₹{value:,}"
+        lines.append(f"{label}: {value if value is not None and value != '' else 'Not listed'}")
+    reply = f"For {listing['title']}\n\n" + "\n".join(lines)
+    return reply, reply
 
 
 @app.post("/chat")
@@ -487,7 +571,11 @@ def chat(
                 conversation["filters"]
             )
 
-            if TEMPLE_WALK_QUESTION.search(message):
+            if request.property_id is not None:
+                response.headers["Cache-Control"] = "no-store"
+                reply, saved_reply = selected_listing_reply(cursor, request.property_id, message)
+                result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
+            elif TEMPLE_WALK_QUESTION.search(message):
                 response.headers["Cache-Control"] = "no-store"
                 reply, saved_reply = temple_walk_reply(cursor, request.conversation_id, message)
                 result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}

@@ -175,6 +175,13 @@ export const styles = StyleSheet.create({
     alignSelf: "center",
   },
 
+  propertyContext: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+
   composer: {
     flexDirection: "row",
     backgroundColor: "#FFFFFF",

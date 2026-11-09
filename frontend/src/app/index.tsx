@@ -45,6 +45,7 @@ export default function HomeScreen() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] =
     useState<Property | null>(null);
+  const [chatProperty, setChatProperty] = useState<Property | null>(null);
   const [listingView, setListingView] = useState<"tour" | "gallery" | "nearby">("tour");
 
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
@@ -54,7 +55,7 @@ export default function HomeScreen() {
 
     if (!text || loading) return;
 
-    const saved = await send(text);
+    const saved = await send(text, chatProperty ? String(chatProperty.id) : undefined);
 
     if (saved) setInput("");
   }
@@ -64,10 +65,17 @@ export default function HomeScreen() {
     setListingView("tour");
   }
 
+  function openListing(property: Property, view: "tour" | "gallery" | "nearby") {
+    if (!property.isSample && !loading) setChatProperty(property);
+    setSelectedProperty(property);
+    setListingView(view);
+  }
+
   function newSearch() {
     if (loading) return;
 
     newConversation();
+    setChatProperty(null);
     setInput("");
     setHistoryOpen(false);
     closeListing();
@@ -77,6 +85,7 @@ export default function HomeScreen() {
     if (loading) return;
 
     setInput("");
+    setChatProperty(null);
     closeListing();
     setHistoryOpen(false);
     void openConversation(id);
@@ -244,9 +253,22 @@ export default function HomeScreen() {
                             {property.price}
                           </Text>
 
-                          <Text style={styles.title}>
-                            {property.title}
-                          </Text>
+                          {property.isSample ? (
+                            <Text style={styles.title}>{property.title}</Text>
+                          ) : (
+                            <Pressable
+                              onPress={() => setChatProperty(property)}
+                              disabled={loading}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Ask about ${property.title}`}
+                              accessibilityState={{ selected: chatProperty?.id === property.id }}
+                            >
+                              <Text style={styles.title}>{property.title}</Text>
+                              <Text style={styles.details}>
+                                {chatProperty?.id === property.id ? "Selected for chat" : "Ask about this property"}
+                              </Text>
+                            </Pressable>
+                          )}
 
                           <Text style={styles.subtitle}>
                             {property.location}
@@ -258,10 +280,7 @@ export default function HomeScreen() {
 
                           {!property.isSample && (
                             <Pressable
-                              onPress={() => {
-                                setSelectedProperty(property);
-                                setListingView("gallery");
-                              }}
+                              onPress={() => openListing(property, "gallery")}
                               accessibilityRole="button"
                               accessibilityLabel={`View room photos for ${property.title}`}
                               style={tourStyles.button}
@@ -272,10 +291,7 @@ export default function HomeScreen() {
 
                           {!property.isSample && (
                             <Pressable
-                              onPress={() => {
-                                setSelectedProperty(property);
-                                setListingView("nearby");
-                              }}
+                              onPress={() => openListing(property, "nearby")}
                               accessibilityRole="button"
                               accessibilityLabel={`Nearby places for ${property.title}`}
                               style={tourStyles.button}
@@ -286,7 +302,7 @@ export default function HomeScreen() {
 
                           {property.isSample || property.tour ? (
                             <Pressable
-                              onPress={() => setSelectedProperty(property)}
+                              onPress={() => openListing(property, "tour")}
                               accessibilityRole="button"
                               accessibilityLabel={
                                 `Open 360-degree tour for ${property.title}`
@@ -319,15 +335,31 @@ export default function HomeScreen() {
           </ScrollView>
 
           <View style={styles.bottom}>
+            {chatProperty ? (
+              <View style={styles.propertyContext}>
+                <Text style={[styles.details, { flex: 1 }]} accessibilityLiveRegion="polite">
+                  Asking about {chatProperty.title}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear selected property"
+                  disabled={loading}
+                  onPress={() => setChatProperty(null)}
+                  style={tourStyles.close}
+                >
+                  <Text style={tourStyles.closeText}>Clear</Text>
+                </Pressable>
+              </View>
+            ) : null}
             <View style={styles.composer}>
               <TextInput
                 value={input}
                 onChangeText={setInput}
                 editable={!loading}
-                placeholder="Describe your ideal home…"
+                placeholder={chatProperty ? "Ask about this property…" : "Describe your ideal home…"}
                 placeholderTextColor="#879389"
                 style={styles.input}
-                accessibilityLabel="Your property search"
+                accessibilityLabel={chatProperty ? "Your question about the selected property" : "Your property search"}
                 returnKeyType="search"
                 onSubmitEditing={search}
               />
@@ -336,14 +368,14 @@ export default function HomeScreen() {
                 onPress={search}
                 disabled={loading || !input.trim()}
                 accessibilityRole="button"
-                accessibilityLabel="Search properties"
+                accessibilityLabel={chatProperty ? "Ask about the selected property" : "Search properties"}
                 style={[
                   styles.button,
                   (loading || !input.trim()) && styles.buttonDisabled,
                 ]}
               >
                 <Text style={styles.buttonText}>
-                  {loading ? "Loading…" : "Search ↗"}
+                  {loading ? "Loading…" : chatProperty ? "Ask ↗" : "Search ↗"}
                 </Text>
               </Pressable>
             </View>

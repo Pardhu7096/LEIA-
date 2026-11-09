@@ -755,3 +755,60 @@ def test_temple_chat_returns_shortest_walk_without_saving_map_data(monkeypatch):
     assert queries[2][1] == (second_id,)
     assert queries[4][1][1] == "Ask again to get a fresh walking estimate from Google Maps."
     assert len(calls) == 2
+
+
+def test_selected_property_facts_and_walk_use_only_that_listing(monkeypatch):
+    import importlib
+    from unittest.mock import MagicMock
+
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    for name in os.environ:
+        if name.lower().endswith("_proxy"):
+            monkeypatch.delenv(name)
+    main = importlib.import_module("main")
+    conversation_id, user_id, property_id = (uuid4() for _ in range(3))
+    filters = main.SearchFilters(location="Madhurawada").model_dump()
+    listing = {
+        "title": "SS Castle", "latitude": 17.7, "longitude": 83.3,
+        "area_sqft": 2200, "price": 8900000, "bedrooms": 3, "bathrooms": None,
+        "location": "Madhurawada", "property_type": "independent_house",
+        "car_parking_spaces": 0, "maintenance_monthly": None,
+    }
+    connection = MagicMock()
+    cursor = connection.__enter__.return_value.cursor.return_value.__enter__.return_value
+    monkeypatch.setattr(main, "get_connection", lambda: connection)
+    monkeypatch.setattr(main.app, "dependency_overrides", {
+        main.get_current_user: lambda: {"id": user_id},
+    })
+    walk = MagicMock(return_value="Test Hospital · 450 m · about 6 minutes on foot.")
+    monkeypatch.setattr(main, "shortest_nearby_walk", walk)
+    search = MagicMock(side_effect=AssertionError("Selected questions must not run a property search"))
+    monkeypatch.setattr(main, "generate_chat_reply", search)
+
+    with TestClient(main.app) as http:
+        def ask(message, selected_listing=listing):
+            cursor.reset_mock()
+            cursor.fetchone.side_effect = [
+                {"filters": filters}, selected_listing, {"id": 1}, {"id": 2},
+            ]
+            response = http.post("/chat", json={
+                "message": message, "conversation_id": str(conversation_id),
+                "property_id": str(property_id),
+            })
+            assert response.status_code == 200
+            assert cursor.execute.call_args_list[1].args[1] == (property_id,)
+            assert "status = 'approved'" in cursor.execute.call_args_list[1].args[0]
+            assert response.json()["filters"] == filters
+            return response.json()["reply"]
+
+        assert "Area: 2,200 sq ft" in ask("How big is it?")
+        assert "Bathrooms: Not listed" in ask("How many bathrooms does it have?")
+        assert "Car parking spaces: 0" in ask("Does it have parking?")
+        assert "I don’t have that detail for SS Castle" in ask("Does it have a balcony?")
+        assert "no longer available" in ask("How big is it?", None)
+        assert "450 m" in ask("How far is the nearest hospital?")
+        walk.assert_called_once_with(17.7, 83.3, "hospitals")
+        assert cursor.execute.call_args_list[3].args[1][1] == (
+            "Ask again to get a fresh walking estimate from Google Maps."
+        )
+    search.assert_not_called()
