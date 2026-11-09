@@ -648,3 +648,29 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
         assert http.get(public_tour).status_code == 404
         assert http.get(public_gallery).status_code == 404
         assert http.get(f"/property-media/{kitchen}").status_code == 404
+
+
+def test_nearby_search_uses_property_pin_and_returns_property_origin(monkeypatch):
+    import io
+    import json
+    from urllib.parse import parse_qs, urlparse
+
+    import nearby_places
+
+    def google(request, timeout):
+        payload = json.loads(request.data)
+        assert payload["includedTypes"] == ["bus_stop", "bus_station"]
+        assert payload["locationRestriction"]["circle"]["center"] == {
+            "latitude": 17.7, "longitude": 83.3,
+        }
+        assert payload["maxResultCount"] == 5
+        assert timeout == 5
+        return io.BytesIO(b'{"places":[{"id":"bus-1","displayName":{"text":"Bus stop"}}]}')
+
+    monkeypatch.setattr(nearby_places, "urlopen", google)
+    [place] = nearby_places.find_places(17.7, 83.3, "bus_stops", "test-key")
+    assert place["name"] == "Bus stop"
+    url = urlparse(place["directions_url"])
+    assert url.hostname == "www.google.com"
+    assert parse_qs(url.query)["origin"] == ["17.7,83.3"]
+    assert parse_qs(url.query)["destination_place_id"] == ["bus-1"]

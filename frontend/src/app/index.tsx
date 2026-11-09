@@ -12,6 +12,7 @@ import {
 } from "react-native";
 
 import PanoramaView from "../components/PanoramaView";
+import NearbyPlaces from "../components/NearbyPlaces";
 import PropertyGallery from "../components/PropertyGallery";
 import { useSavedChat, type Property } from "../hooks/useSavedChat";
 import { styles } from "../styles/chat.styles";
@@ -44,7 +45,7 @@ export default function HomeScreen() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedProperty, setSelectedProperty] =
     useState<Property | null>(null);
-  const [showGallery, setShowGallery] = useState(false);
+  const [listingView, setListingView] = useState<"tour" | "gallery" | "nearby">("tour");
 
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
 
@@ -60,7 +61,7 @@ export default function HomeScreen() {
 
   function closeListing() {
     setSelectedProperty(null);
-    setShowGallery(false);
+    setListingView("tour");
   }
 
   function newSearch() {
@@ -259,13 +260,27 @@ export default function HomeScreen() {
                             <Pressable
                               onPress={() => {
                                 setSelectedProperty(property);
-                                setShowGallery(true);
+                                setListingView("gallery");
                               }}
                               accessibilityRole="button"
                               accessibilityLabel={`View room photos for ${property.title}`}
                               style={tourStyles.button}
                             >
                               <Text style={tourStyles.buttonText}>View property photos</Text>
+                            </Pressable>
+                          )}
+
+                          {!property.isSample && (
+                            <Pressable
+                              onPress={() => {
+                                setSelectedProperty(property);
+                                setListingView("nearby");
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Nearby places for ${property.title}`}
+                              style={tourStyles.button}
+                            >
+                              <Text style={tourStyles.buttonText}>Nearby places</Text>
                             </Pressable>
                           )}
 
@@ -381,7 +396,7 @@ export default function HomeScreen() {
             <Pressable
               onPress={closeListing}
               accessibilityRole="button"
-              accessibilityLabel={showGallery ? "Close property photos" : "Close 360-degree tour"}
+              accessibilityLabel="Close listing view"
               style={tourStyles.close}
             >
               <Text style={tourStyles.closeText}>
@@ -390,8 +405,10 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
-          {selectedProperty && (showGallery ? (
-            <PropertyGallery key={selectedProperty.id} property={selectedProperty} onTour={() => setShowGallery(false)} />
+          {selectedProperty && (listingView === "nearby" ? (
+            <NearbyPlaces key={selectedProperty.id} propertyId={String(selectedProperty.id)} />
+          ) : listingView === "gallery" ? (
+            <PropertyGallery key={selectedProperty.id} property={selectedProperty} onTour={() => setListingView("tour")} />
           ) : (
             <>
               {selectedProperty.isSample && (

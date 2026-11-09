@@ -17,6 +17,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from auth import get_current_user, router as auth_router
 from crm import router as crm_router
 from database import get_connection
+from nearby_places import router as nearby_router
 from property_media import router as media_router
 
 
@@ -35,6 +36,7 @@ app = FastAPI()
 app.include_router(auth_router)
 app.include_router(crm_router)
 app.include_router(media_router)
+app.include_router(nearby_router)
 
 app.add_middleware(
     CORSMiddleware,
