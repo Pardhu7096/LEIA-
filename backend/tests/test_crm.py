@@ -9,6 +9,8 @@ import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
+
 from psycopg.rows import dict_row
 from pydantic import ValidationError
 
@@ -667,7 +669,11 @@ def test_nearby_search_uses_property_pin_and_returns_property_origin(monkeypatch
         assert timeout == 5
         return io.BytesIO(b'{"places":[{"id":"bus-1","displayName":{"text":"Bus stop"}}]}')
 
-    monkeypatch.setattr(nearby_places, "urlopen", google)
+    monkeypatch.setattr(
+        nearby_places,
+        "build_opener",
+        lambda *handlers: SimpleNamespace(open=google),
+    )
     [place] = nearby_places.find_places(17.7, 83.3, "bus_stops", "test-key")
     assert place["name"] == "Bus stop"
     url = urlparse(place["directions_url"])
@@ -721,7 +727,11 @@ def test_temple_chat_returns_shortest_walk_without_saving_map_data(monkeypatch):
                           b'{"condition":"ROUTE_EXISTS","status":{},'
                           b'"distanceMeters":1200,"duration":"900s"}]')
 
-    monkeypatch.setattr(nearby_places, "urlopen", google)
+    monkeypatch.setattr(
+        nearby_places,
+        "build_opener",
+        lambda *handlers: SimpleNamespace(open=google),
+    )
     auth_override = {main.get_current_user: lambda: {"id": user_id}}
     monkeypatch.setattr(main.app, "dependency_overrides", auth_override)
     properties = [{"id": str(first_id)}, {"id": str(second_id)}]
