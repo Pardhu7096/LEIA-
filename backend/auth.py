@@ -14,6 +14,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from pwdlib import PasswordHash
 
 from database import get_connection
+from preflight import parse_origins
 from rate_limits import login_limit, registration_limit
 
 
@@ -35,7 +36,7 @@ STAFF_COOKIE_NAME = "leia_staff_refresh"
 STAFF_ROLES = {"agent", "admin"}
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
-ALLOWED_ORIGINS = {
+DEVELOPMENT_ORIGINS = {
     "http://localhost:8081",
     "http://127.0.0.1:8081",
     "http://localhost:8082",
@@ -43,6 +44,10 @@ ALLOWED_ORIGINS = {
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 }
+
+# LEIA_ALLOWED_ORIGINS (comma-separated) replaces the local defaults, so a
+# deployed server accepts only its own HTTPS web origins.
+ALLOWED_ORIGINS = parse_origins(os.getenv("LEIA_ALLOWED_ORIGINS")) or DEVELOPMENT_ORIGINS
 
 DUMMY_HASH = password_hasher.hash("unused-dummy-password")
 
