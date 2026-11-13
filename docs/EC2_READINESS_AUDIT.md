@@ -2,6 +2,7 @@
 
 - **Date:** 13 November 2026 · **Target:** safe production deployment by 15 November 2026
 - **Audited commit:** `e99ffc3` (branch `codex/customer-quality-checks`) · **Audit branch:** `audit/leia-ec2-readiness`
+- **Draft pull request:** https://github.com/Pardhu7096/LEIA-/pull/6 (into `codex/customer-quality-checks`; see C1 for why not `main`)
 - **Limits of this audit:** nothing was provisioned, deployed or changed on AWS, GitHub settings or any
   real database. "Verified" below means reproduced in a local sandbox (Ubuntu 24.04, PostgreSQL 16,
   Nginx 1.24, Python 3.13, Node 22) or read from the GitHub API. It never means validated on AWS.
@@ -163,6 +164,7 @@ database: `postgresql://postgres:<password>@localhost:5432/crm_test`.
 | `frontend`: `node --experimental-strip-types --test tests/roomTours.test.mjs tests/apiUrl.test.mjs` | 13 passed |
 | `shellcheck deploy/ec2/deploy-release.sh` · `yamllint .github/workflows/` | clean |
 | `pip-audit -r backend/requirements-runtime.txt` | no known vulnerabilities |
+| GitHub Actions "CRM checks" on this branch, push and pull request (Python 3.12, Node 24, PostgreSQL 16) | success; `crm-api` log: 72 passed |
 
 New tests: `test_preflight.py` (25: settings rules, origin handling, readiness, and an empty database
 built only from migrations then exercised through registration, sign-in, roles, chat and listing
@@ -254,7 +256,7 @@ protection on `main` requiring the three "CRM checks" jobs.
 | Stage | Verified | Pending | Unverified |
 | --- | --- | --- | --- |
 | **Build** | Backend compiles; both apps type-check and lint; agent web export builds with the API setting | Merge to `main`; dependency lock file | iOS/Android builds; customer web export |
-| **Test** | 72 backend tests on PostgreSQL 16; 39 app tests; local rehearsal and smoke test | CI run of this branch on GitHub | Real Groq and Google calls; any test against a deployed server |
+| **Test** | 72 backend tests on PostgreSQL 16 and 39 app tests, locally and in GitHub Actions; local rehearsal and smoke test | Smoke test against a staging server | Real Groq and Google calls; any test against a deployed server |
 | **Secure** | No secrets in history; sign-in, roles, uploads and limits reviewed and exercised; settings validated before go-live | Branch protection; M2–M9; lock file | GitHub environment rules; server hardening; TLS on the real domain |
 | **Deploy** | Deploy script control flow, rollback and retry, locally | Workflow on default branch; server provisioning; secrets | Any EC2 deployment, staging or production |
 | **Monitor** | Readiness endpoint distinguishes "process up" from "can serve" | Uptime check, alarms, log retention, backups | All of it on a real server |
