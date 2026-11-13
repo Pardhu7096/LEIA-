@@ -22,6 +22,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -44,7 +45,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r backend/requirements-test.txt
       - run: python -m compileall -q backend
-      - run: python -m pytest backend/tests/test_crm.py backend/tests/test_property_media.py -q
+      - run: python -m pytest backend/tests -q
       - name: Verify production intent and protected branch
         if: inputs.target == 'production'
         env:
@@ -56,6 +57,7 @@ jobs:
   deploy:
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: ${{ inputs.target }}
     steps:
       - uses: actions/checkout@v4
@@ -93,6 +95,9 @@ jobs:
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
-          scp -o StrictHostKeyChecking=yes leia-backend.tgz "$USER@$HOST:/tmp/leia-$TARGET-$SHA.tgz"
-          ssh -o StrictHostKeyChecking=yes "$USER@$HOST" \
+          # Fail fast instead of hanging on a prompt or an unreachable host.
+          SSH_OPTIONS=(-o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=20
+                       -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          scp "${SSH_OPTIONS[@]}" leia-backend.tgz "$USER@$HOST:/tmp/leia-$TARGET-$SHA.tgz"
+          ssh "${SSH_OPTIONS[@]}" "$USER@$HOST" \
             "bash /opt/leia/$TARGET/deploy-release.sh '$SHA' '$PORT'"
