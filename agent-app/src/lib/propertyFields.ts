@@ -289,6 +289,9 @@ export function buildPayload(values: Record<string, string>, consent: boolean) {
   for (const field of fields) {
     const value = (values[field.key] || "").trim();
     payload[field.key] = value || null;
+    if (field.maxLength && value.length > field.maxLength) {
+      throw new Error(`${field.label} must be ${field.maxLength} characters or fewer.`);
+    }
     if (field.choices && !field.choices.some((choice) => choice[0] === value)) {
       throw new Error(`Choose a valid value for ${field.label}.`);
     }
@@ -331,6 +334,12 @@ export function buildPayload(values: Record<string, string>, consent: boolean) {
     }
   }
   if (!payload.title) throw new Error("Enter a property title.");
+  if (payload.owner_phone && !/^\+?[0-9][0-9 ()-]{6,28}$/.test(String(payload.owner_phone))) {
+    throw new Error("Enter a valid owner phone number.");
+  }
+  if (payload.listing_consent && (!payload.owner_name || !payload.owner_phone)) {
+    throw new Error("Record the owner name and phone before confirming listing consent.");
+  }
   if (
     Boolean(payload.latitude !== null) !== Boolean(payload.longitude !== null)
   ) {
