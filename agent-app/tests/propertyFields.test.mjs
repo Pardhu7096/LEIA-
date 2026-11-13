@@ -65,3 +65,19 @@ for (const changes of [
     assert.throws(() => buildPayload({ ...draft(), ...changes }, false));
   });
 }
+
+for (const changes of [
+  { owner_phone: "not a phone" },
+  { title: "X".repeat(201) },
+  { description: "X".repeat(10001) },
+]) {
+  test(`rejects malformed or oversized input ${Object.keys(changes)[0]}`, () => {
+    assert.throws(() => buildPayload({ ...draft(), ...changes }, false));
+  });
+}
+
+test("requires owner contact details when listing consent is recorded", () => {
+  assert.throws(() => buildPayload(draft(), true));
+  const payload = buildPayload({ ...draft(), owner_name: "Owner", owner_phone: "+91 9876543210" }, true);
+  assert.equal(payload.listing_consent, true);
+});
