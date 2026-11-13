@@ -95,3 +95,37 @@ leaves its records for inspection; recreate the disposable database for each run
 Integration checks cover migration adoption/rerun, saved field roundtrips,
 owner/admin/customer permissions, private-data isolation, stale versions,
 non-draft locks, clearing optional fields and transactional rollback.
+
+## Shared request limits (migration 006)
+
+Run `python migrate_crm.py` with the database owner's credentials before deploying
+this version. Migration 006 adds `public.request_limits` and grants access to
+`leia_app` when that role exists. Other API roles need SELECT/INSERT/UPDATE/DELETE
+on this table. The existing migration runner tracks and serializes the migration.
+
+Initial limits count attempts, including failed login attempts:
+
+| Operation | Identity | Limit |
+| --- | --- | --- |
+| Customer and staff login combined | Client address | 10/minute |
+| Registration | Client address | 5/hour |
+| Chat | Authenticated user | 10/minute and 100/24 hours |
+| Nearby Maps and walking estimates in chat combined | Authenticated user | 10/minute and 100/24 hours |
+
+Each window starts with its first request. Minute and daily quotas are charged
+separately, so a daily rejection may still consume minute quota. Rejected requests
+receive HTTP 429 and Retry-After. If the quota database cannot be used, protected
+routes return HTTP 503 before password hashing or paid provider calls. Chat
+walking requests count against both chat and Maps quotas. Listings and existing
+chat history can still be read without making paid calls.
+
+Counters are shared across workers and restarts. Keys are HMAC hashes using
+JWT_SECRET. Changing that secret resets quota identities as well as invalidating
+access tokens. Expired records are cleaned in bounded batches as traffic arrives.
+Configure the API server to accept proxy headers only from the actual trusted
+reverse proxy. The limiter uses request.client.host and does not parse arbitrary
+X-Forwarded-For headers itself. Until configured, users behind a proxy may share
+an address quota. Keep JWT_SECRET stable and private across workers.
+
+These are per-address and per-user controls. Provider billing budgets and alerts
+are still required for an overall spending ceiling.

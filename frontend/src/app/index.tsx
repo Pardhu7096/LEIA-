@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 
+import ContactLEIA from "../components/ContactLEIA";
 import PropertyView from "../components/PropertyView";
 import { useSavedChat, type Property } from "../hooks/useSavedChat";
 import { styles } from "../styles/chat.styles";
@@ -211,6 +212,7 @@ export default function HomeScreen() {
                   <Text style={styles.messageText}>
                     {message.text}
                   </Text>
+                  {message.role === "assistant" && <ContactLEIA />}
                 </View>
 
                 {!!message.properties?.length && (

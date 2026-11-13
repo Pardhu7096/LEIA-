@@ -66,6 +66,8 @@ def database():
     def connect():
         return psycopg.connect(url, row_factory=dict_row)
 
+    import rate_limits
+    original_limits = rate_limits.get_connection
     original = crm.get_connection
     import migrate_crm
 
@@ -107,6 +109,7 @@ def database():
                 "INSERT INTO properties (id,created_by,title,property_type,price) VALUES (%s,%s,'Existing draft','flat',7500000)",
                 (legacy_id, legacy_owner),
             )
+        rate_limits.get_connection = connect
         crm.get_connection = connect
         migrate_crm.get_connection = connect
         migrate()
@@ -125,6 +128,7 @@ def database():
         migrate()
         yield connect
     finally:
+        rate_limits.get_connection = original_limits
         crm.get_connection = original
         migrate_crm.get_connection = original_migrate
         # Leave cleanup to the disposable database owner; never drop application tables.
@@ -683,6 +687,8 @@ def test_nearby_search_uses_property_pin_and_returns_property_origin(monkeypatch
 
 
 def test_temple_chat_returns_shortest_walk_without_saving_map_data(monkeypatch):
+    import rate_limits
+    monkeypatch.setattr(rate_limits, "consume", lambda *args: None)
     import importlib
     import io
     import json
@@ -768,6 +774,8 @@ def test_temple_chat_returns_shortest_walk_without_saving_map_data(monkeypatch):
 
 
 def test_selected_property_facts_and_walk_use_only_that_listing(monkeypatch):
+    import rate_limits
+    monkeypatch.setattr(rate_limits, "consume", lambda *args: None)
     import importlib
     from unittest.mock import MagicMock
 
@@ -835,3 +843,83 @@ def test_selected_property_facts_and_walk_use_only_that_listing(monkeypatch):
         assert "property_id" in cursor.execute.call_args_list[1].args[0]
         assert [message["property_id"] for message in restored.json()["messages"]] == [None, str(property_id)]
     search.assert_not_called()
+
+
+def test_shared_rate_limits_and_recovery(database, monkeypatch):
+    import rate_limits
+    from fastapi import HTTPException
+    from concurrent.futures import ThreadPoolExecutor
+
+    identity = str(uuid4())
+    def attempt(_):
+        try:
+            rate_limits.consume("test-concurrent", identity, 3, 60)
+            return 200
+        except HTTPException as error:
+            assert error.status_code == 429
+            assert 1 <= int(error.headers["Retry-After"]) <= 60
+            return 429
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        outcomes = list(pool.map(attempt, range(8)))
+    assert outcomes.count(200) == 3
+    assert outcomes.count(429) == 5
+    rate_limits.consume("test-concurrent", str(uuid4()), 3, 60)
+    with database() as connection:
+        connection.execute("UPDATE public.request_limits SET expires_at = clock_timestamp() - interval '1 second'")
+    assert attempt(None) == 200
+
+    def unavailable():
+        raise OSError("database unavailable")
+    monkeypatch.setattr(rate_limits, "get_connection", unavailable)
+    with pytest.raises(HTTPException) as caught:
+        rate_limits.consume("test", identity, 3, 60)
+    assert caught.value.status_code == 503
+
+
+def test_public_auth_limit_rejects_before_login_work(monkeypatch):
+    import auth
+    import rate_limits
+    from fastapi import HTTPException
+    app = FastAPI()
+    app.include_router(auth.router)
+    def blocked(*args):
+        raise HTTPException(429, "Limited", headers={"Retry-After": "60"})
+    monkeypatch.setattr(rate_limits, "consume", blocked)
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Authentication database must not be called")
+    monkeypatch.setattr(auth, "get_connection", unexpected)
+    with TestClient(app) as http:
+        for path in ("/auth/login", "/auth/staff/login", "/auth/register"):
+            result = http.post(path, json={"email": "test@example.com", "password": "test-password-only", "name": "Test"})
+            assert result.status_code == 429
+            assert result.headers["retry-after"] == "60"
+
+
+def test_paid_routes_reject_before_external_or_database_work(monkeypatch):
+    import importlib
+    import rate_limits
+    import nearby_places
+    from fastapi import HTTPException
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+    main = importlib.import_module("main")
+    def blocked(*args):
+        raise HTTPException(429, "Limited", headers={"Retry-After": "60"})
+    monkeypatch.setattr(rate_limits, "consume", blocked)
+    user = {"id": uuid4()}
+    monkeypatch.setattr(main.app, "dependency_overrides", {
+        main.get_current_user: lambda: user,
+    })
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Limited request reached database or paid provider")
+    monkeypatch.setattr(main, "get_connection", unexpected)
+    monkeypatch.setattr(nearby_places, "get_connection", unexpected)
+    monkeypatch.setattr(main, "generate_chat_reply", unexpected)
+    monkeypatch.setattr(nearby_places, "find_places", unexpected)
+    with TestClient(main.app) as http:
+        response = http.post("/chat", json={"message": "Show homes", "conversation_id": str(uuid4())})
+        assert response.status_code == 429
+        assert response.headers["retry-after"] == "60"
+        response = http.get(f"/properties/{uuid4()}/nearby?category=schools")
+        assert response.status_code == 429
+        assert response.headers["retry-after"] == "60"

@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 
+import ContactLEIA from "./ContactLEIA";
 import NearbyPlaces from "./NearbyPlaces";
 import PanoramaView from "./PanoramaView";
 import PropertyGallery from "./PropertyGallery";
@@ -124,6 +125,7 @@ export default function PropertyView({ property, messages, loading, error, onAsk
                   message.role === "user" ? styles.userMessage : styles.assistantMessage,
                 ]}>
                   <Text style={styles.messageText}>{message.text}</Text>
+                  {message.role === "assistant" && <ContactLEIA />}
                 </View>
               ))}
               {loading ? <Text accessibilityLiveRegion="polite" style={styles.subtitle}>LEIA is working…</Text> : null}

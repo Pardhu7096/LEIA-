@@ -14,6 +14,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from pwdlib import PasswordHash
 
 from database import get_connection
+from rate_limits import login_limit, registration_limit
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -161,7 +162,8 @@ def require_session_header(
         )
 
 
-@router.post("/register", response_model=UserResponse, status_code=201)
+@router.post("/register", response_model=UserResponse, status_code=201,
+             dependencies=[Depends(registration_limit)])
 def register(request: RegisterRequest):
     email = str(request.email).lower()
     hashed_password = password_hasher.hash(request.password)
@@ -190,7 +192,7 @@ def register(request: RegisterRequest):
     return user
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(login_limit)])
 def login(
     request: LoginRequest,
     response: Response,
@@ -199,7 +201,7 @@ def login(
     return start_session(request, response, http_request, staff=False)
 
 
-@router.post("/staff/login", response_model=TokenResponse)
+@router.post("/staff/login", response_model=TokenResponse, dependencies=[Depends(login_limit)])
 def staff_login(request: LoginRequest, response: Response, http_request: Request):
     return start_session(request, response, http_request, staff=True)
 

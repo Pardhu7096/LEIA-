@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from auth import get_current_user
 from database import get_connection
+from rate_limits import limit_maps
 
 
 router = APIRouter(
@@ -394,6 +395,7 @@ def nearby_places(
     Requires an authenticated user.
     """
 
+    limit_maps(_user)
     response.headers["Cache-Control"] = "no-store"
 
     with get_connection() as connection:

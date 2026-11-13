@@ -18,6 +18,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from auth import get_current_user, router as auth_router
 from crm import router as crm_router
 from database import get_connection
+from rate_limits import limit_chat, limit_maps
 from nearby_places import Category, router as nearby_router, shortest_nearby_walk
 from property_media import router as media_router
 
@@ -407,7 +408,7 @@ def get_conversation(
     }
 
 
-def temple_walk_reply(cursor, conversation_id: UUID, message: str) -> tuple[str, str]:
+def temple_walk_reply(cursor, conversation_id: UUID, message: str, user: dict) -> tuple[str, str]:
     cursor.execute(
         """
         SELECT properties
@@ -451,21 +452,22 @@ def temple_walk_reply(cursor, conversation_id: UUID, message: str) -> tuple[str,
     if listing is None:
         reply = "That listing is no longer available. Try a new property search."
         return reply, reply
-    return listing_walk_reply(listing, "temples")
+    return listing_walk_reply(listing, "temples", user)
 
 
-def listing_walk_reply(listing: dict, category: Category) -> tuple[str, str]:
+def listing_walk_reply(listing: dict, category: Category, user: dict) -> tuple[str, str]:
     if listing["latitude"] is None or listing["longitude"] is None:
         reply = f"{listing['title']} doesn’t have a map pin yet."
         return reply, reply
 
+    limit_maps(user)
     walk = shortest_nearby_walk(listing["latitude"], listing["longitude"], category)
     # Save the conversation without persisting Google Maps content.
     saved = "Ask again to get a fresh walking estimate from Google Maps."
     return f"From {listing['title']}\n\n{walk}", saved
 
 
-def selected_listing_reply(cursor, property_id: UUID, message: str) -> tuple[str, str]:
+def selected_listing_reply(cursor, property_id: UUID, message: str, user: dict) -> tuple[str, str]:
     cursor.execute(
         """
         SELECT title, latitude, longitude, area_sqft, price, bedrooms, bathrooms,
@@ -488,7 +490,7 @@ def selected_listing_reply(cursor, property_id: UUID, message: str) -> tuple[str
             reply = f"I can check nearby places from {listing['title']}, but I can’t verify ownership types."
             return reply, reply
         if len(categories) == 1:
-            return listing_walk_reply(listing, categories[0])
+            return listing_walk_reply(listing, categories[0], user)
         reply = (
             f"For {listing['title']}, ask about one nearby category at a time. "
             "I can check walking estimates for schools, hospitals, temples, groceries, or bus stops."
@@ -532,6 +534,7 @@ def chat(
     response: Response,
     user: dict = Depends(get_current_user),
 ):
+    limit_chat(user)
     message = request.message.strip()
 
     if not message:
@@ -573,11 +576,11 @@ def chat(
 
             if request.property_id is not None:
                 response.headers["Cache-Control"] = "no-store"
-                reply, saved_reply = selected_listing_reply(cursor, request.property_id, message)
+                reply, saved_reply = selected_listing_reply(cursor, request.property_id, message, user)
                 result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
             elif TEMPLE_WALK_QUESTION.search(message):
                 response.headers["Cache-Control"] = "no-store"
-                reply, saved_reply = temple_walk_reply(cursor, request.conversation_id, message)
+                reply, saved_reply = temple_walk_reply(cursor, request.conversation_id, message, user)
                 result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
             else:
                 result = generate_chat_reply(
