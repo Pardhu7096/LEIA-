@@ -923,3 +923,72 @@ def test_paid_routes_reject_before_external_or_database_work(monkeypatch):
         response = http.get(f"/properties/{uuid4()}/nearby?category=schools")
         assert response.status_code == 429
         assert response.headers["retry-after"] == "60"
+
+
+def test_room_panoramas_database_permissions_versions_and_public_visibility(database, monkeypatch):
+    """Exercise named-room panorama CRUD against the disposable PostgreSQL DB."""
+    from io import BytesIO
+    from PIL import Image
+    import auth
+    import property_media
+
+    connect = database
+    monkeypatch.setattr(property_media, "get_connection", connect)
+    monkeypatch.setattr(auth, "get_connection", connect)
+
+    app = FastAPI()
+    app.include_router(property_media.router)
+    app.include_router(crm.router)
+
+    owner, other, admin = [staff(connect, role) for role in ("agent", "agent", "admin")]
+
+    def headers(user):
+        return {"Authorization": "Bearer " + create_access_token(user["id"])["access_token"]}
+
+    picture = Image.new("RGB", (1024, 512), "blue")
+    output = BytesIO()
+    picture.save(output, format="JPEG")
+    panorama = output.getvalue()
+
+    with TestClient(app) as http:
+        # CRM draft creation uses the same isolated PostgreSQL connection.
+        monkeypatch.setattr(crm, "get_connection", connect)
+        created = http.post("/staff/properties", json={
+            "title": "Room tour integration test", "property_type": "flat",
+            "listing_consent": True,
+        }, headers=headers(owner))
+        assert created.status_code == 201, created.text
+        listing = created.json()
+        listing_id = listing["id"]
+        base = f"/staff/properties/{listing_id}"
+        room_url = base + "/panoramas/Bedroom%201"
+        version = listing["version"]
+
+        assert http.put(room_url, params={"version": version}, content=panorama).status_code == 401
+        assert http.put(room_url, params={"version": version}, content=panorama, headers=headers(other)).status_code == 404
+        assert http.put(room_url, params={"version": version}, content=b"invalid", headers=headers(owner)).status_code == 422
+        assert http.put(base + "/panoramas/%20", params={"version": version}, content=panorama, headers=headers(owner)).status_code == 422
+
+        uploaded = http.put(room_url, params={"version": version}, content=panorama, headers=headers(owner))
+        assert uploaded.status_code == 200, uploaded.text
+        media_id = uploaded.json()["id"]
+        version = uploaded.json()["version"]
+        assert http.put(room_url, params={"version": listing["version"]}, content=panorama, headers=headers(owner)).status_code == 409
+        assert http.get(f"/properties/{listing_id}/panoramas").json() == []
+        assert http.get(f"/property-media/{media_id}").status_code == 404
+        assert http.get(f"/property-media/{media_id}/tour").status_code == 404
+        assert http.get(base + "/panoramas", headers=headers(other)).status_code == 404
+        assert http.get(base + "/panoramas", headers=headers(admin)).status_code == 200
+
+        # Case-insensitive room replacement retains the same media ID.
+        replaced = http.put(base + "/panoramas/bedroom%201", params={"version": version},
+                            content=panorama, headers=headers(owner))
+        assert replaced.status_code == 200, replaced.text
+        assert replaced.json()["id"] == media_id
+        version = replaced.json()["version"]
+
+        deleted = http.delete(room_url, params={"version": version}, headers=headers(owner))
+        assert deleted.status_code == 200, deleted.text
+        assert http.get(base + "/panoramas", headers=headers(owner)).json() == []
+        assert http.delete(room_url, params={"version": deleted.json()["version"]},
+                           headers=headers(owner)).status_code == 404
