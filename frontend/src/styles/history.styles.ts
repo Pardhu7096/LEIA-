@@ -32,6 +32,15 @@ export const historyStyles = StyleSheet.create({
     padding: 12,
     gap: 8,
   },
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 12,
+    backgroundColor: "#E5EBDD",
+  },
+  itemOpen: { flex: 1 },
+  deleteButton: { paddingHorizontal: 16, paddingVertical: 16 },
+  deleteText: { color: "#A12A2A", fontWeight: "700", fontSize: 17 },
   item: {
     padding: 14,
     borderRadius: 12,
