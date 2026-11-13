@@ -7,8 +7,15 @@ import {
   type ReactNode,
 } from "react";
 
+import { resolveApiUrl } from "../lib/apiUrl";
 
-export const API_URL = "http://localhost:8000";
+// Set EXPO_PUBLIC_API_URL (for example https://api.example.com) for staging and
+// production builds. Only development builds fall back to the local backend.
+export const API_URL = resolveApiUrl(
+  process.env.EXPO_PUBLIC_API_URL,
+  __DEV__,
+  "http://localhost:8000",
+);
 
 type TokenData = {
   access_token: string;
