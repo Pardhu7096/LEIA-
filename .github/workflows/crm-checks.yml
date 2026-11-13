@@ -1,7 +1,7 @@
 name: CRM checks
 on:
   push:
-    paths: ['agent-app/**', 'backend/**', 'frontend/**', '.github/workflows/crm-checks.yml']
+    paths: ['agent-app/**', 'backend/**', 'frontend/**', 'deploy/**', '.github/workflows/*.yml']
   pull_request:
     paths: ['agent-app/**', 'backend/**', '.github/workflows/crm-checks.yml']
 permissions:
