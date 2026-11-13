@@ -6,7 +6,7 @@ SHA="${1:?commit sha required}"
 PORT="${2:?port required}"
 [[ "$SHA" =~ ^[a-f0-9]{40}$ ]] || exit 2
 [[ "$PORT" =~ ^[0-9]+$ ]] || exit 2
-ENVIRONMENT="${LEIA_ENVIRONMENT:?set LEIA_ENVIRONMENT to staging or production}"
+ENVIRONMENT="$(basename "$(dirname "$(realpath "$0")")")"
 [[ "$ENVIRONMENT" == staging || "$ENVIRONMENT" == production ]] || exit 2
 ROOT="/opt/leia/$ENVIRONMENT"
 SERVICE="leia-$ENVIRONMENT.service"
