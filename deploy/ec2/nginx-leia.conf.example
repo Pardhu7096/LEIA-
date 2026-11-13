@@ -1,0 +1,60 @@
+# Nginx reverse proxy for the LEIA API. Install one copy per environment as
+#   /etc/nginx/sites-available/leia-ENVIRONMENT  (and link it in sites-enabled)
+# Replace ENVIRONMENT, API_DOMAIN and PORT. Obtain the certificate first
+# (see docs/EC2_RUNBOOK.md); `nginx -t` must pass before reloading.
+
+# Per-address ceiling in front of the application's own login/chat limits.
+limit_req_zone $binary_remote_addr zone=leia_ENVIRONMENT:10m rate=20r/s;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name API_DOMAIN;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name API_DOMAIN;
+
+    ssl_certificate /etc/letsencrypt/live/API_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/API_DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:leia_ENVIRONMENT_tls:10m;
+    server_tokens off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    # 360-degree panoramas are accepted up to 12 MB; the Nginx default of 1 MB
+    # would reject every panorama and most photos.
+    client_max_body_size 13m;
+    client_body_timeout 60s;
+
+    # The interactive API explorer is a development aid, not a public page.
+    location ~ ^/(docs|redoc|openapi\.json)$ {
+        return 404;
+    }
+
+    location / {
+        limit_req zone=leia_ENVIRONMENT burst=40 nodelay;
+        limit_req_status 429;
+
+        proxy_pass http://127.0.0.1:PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # Overwrite, never append: a client-supplied X-Forwarded-For must not be
+        # able to choose the address used for login and registration limits.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+}

@@ -1,0 +1,5 @@
+# /etc/sudoers.d/leia-deploy  (install with: visudo -cf <file> && install -m 440)
+# The deploy account may restart its own LEIA service and nothing else.
+# Use a separate deploy account and SSH key for each environment.
+DEPLOY_USER_STAGING ALL=(root) NOPASSWD: /usr/bin/systemctl restart leia-staging.service
+DEPLOY_USER_PRODUCTION ALL=(root) NOPASSWD: /usr/bin/systemctl restart leia-production.service
