@@ -147,7 +147,7 @@ def property_tour(media_id: UUID):
         row = connection.execute(
             """SELECT 1 FROM public.property_media AS m
                JOIN public.properties AS p ON p.id = m.property_id
-               WHERE m.id = %s AND m.kind = 'panorama'
+               WHERE m.id = %s AND m.kind IN ('panorama', 'panorama_room')
                  AND p.status = 'approved' AND p.availability = 'available';""",
             (media_id,),
         ).fetchone()
