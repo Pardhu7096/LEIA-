@@ -1,0 +1,84 @@
+name: LEIA EC2 delivery
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deployment environment
+        type: choice
+        options: [staging, production]
+        required: true
+      confirmation:
+        description: For production, type DEPLOY-LEIA-PRODUCTION
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leia-deploy-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r backend/requirements-test.txt
+      - run: python -m compileall -q backend
+      - name: Verify production intent and protected branch
+        if: inputs.target == 'production'
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$CONFIRMATION" = "DEPLOY-LEIA-PRODUCTION"
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require deployment configuration
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ${{ secrets.EC2_USER }}
+          KEY: ${{ secrets.EC2_SSH_KEY }}
+          HOST_KEYS: ${{ secrets.EC2_KNOWN_HOSTS }}
+          PORT: ${{ vars.LEIA_PORT }}
+        run: |
+          test -n "$HOST" && test -n "$USER" && test -n "$KEY" && test -n "$HOST_KEYS"
+          test -n "$PORT"
+          [[ "$PORT" =~ ^[0-9]+$ ]]
+      - name: Configure pinned SSH host key
+        env:
+          KEY: ${{ secrets.EC2_SSH_KEY }}
+          HOST_KEYS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$HOST_KEYS" > ~/.ssh/known_hosts
+      - name: Package backend (exclude secrets and local state)
+        run: |
+          tar -czf leia-backend.tgz --exclude='*.env' --exclude='__pycache__' --exclude='.venv' -C backend .
+      - name: Upload and activate release
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ${{ secrets.EC2_USER }}
+          PORT: ${{ vars.LEIA_PORT }}
+          SHA: ${{ github.sha }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          scp -o StrictHostKeyChecking=yes leia-backend.tgz "$USER@$HOST:/tmp/leia-$TARGET-$SHA.tgz"
+          ssh -o StrictHostKeyChecking=yes "$USER@$HOST" \
+            "bash /opt/leia/$TARGET/deploy-release.sh '$SHA' '$PORT'"
