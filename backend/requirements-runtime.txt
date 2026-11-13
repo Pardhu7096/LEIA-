@@ -1,0 +1,4 @@
+# Runtime dependencies; keep the CRM test requirements as a common base until
+# the application dependencies are split into smaller locked sets.
+-r requirements-test.txt
+uvicorn>=0.30,<1
