@@ -235,3 +235,12 @@ def test_delivery_workflow_keeps_its_production_safeguards():
     assert "ssh-keyscan" not in workflow
     assert "StrictHostKeyChecking=no" not in workflow
     assert "python -m pytest backend/tests -q" in workflow
+
+
+def test_required_checks_run_on_every_pull_request():
+    """A path filter would leave required checks pending forever on docs-only changes."""
+    checks = (WORKFLOW.parent / "crm-checks.yml").read_text(encoding="utf-8")
+    trigger = checks.split("  pull_request:", 1)[1].split("permissions:", 1)[0]
+    assert trigger.strip() == ""
+    for job in ("agent-app:", "crm-api:", "customer-frontend:"):
+        assert f"\n  {job}\n" in checks

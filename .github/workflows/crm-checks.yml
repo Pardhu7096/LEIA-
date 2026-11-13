@@ -2,8 +2,10 @@ name: CRM checks
 on:
   push:
     paths: ['agent-app/**', 'backend/**', 'frontend/**', 'deploy/**', '.github/workflows/*.yml']
+  # No path filter here. These jobs are meant to be required checks on main, and a
+  # required check that never starts (for example on a docs-only pull request)
+  # leaves the pull request unmergeable.
   pull_request:
-    paths: ['agent-app/**', 'backend/**', 'frontend/**', 'deploy/**', '.github/workflows/*.yml']
 permissions:
   contents: read
 jobs:
