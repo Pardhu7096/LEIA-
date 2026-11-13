@@ -211,6 +211,82 @@ def gallery_entries(property_id, user=None):
     return photos
 
 
+@router.get("/properties/{property_id}/panoramas")
+def public_room_panoramas(property_id: UUID, response: Response):
+    response.headers.update(NO_CACHE)
+    with get_connection() as connection:
+        photos = connection.execute(
+            """SELECT m.id, m.room FROM public.property_media AS m
+               JOIN public.properties AS p ON p.id = m.property_id
+               WHERE p.id = %s AND p.status = 'approved' AND p.availability = 'available'
+                 AND m.kind = 'panorama_room'
+               ORDER BY m.room, m.id;""",
+            (property_id,),
+        ).fetchall()
+    return [{"id": item["id"], "room": item["room"], "tour": f"/property-media/{item['id']}/tour"} for item in photos]
+
+
+@router.get("/staff/properties/{property_id}/panoramas")
+def staff_room_panoramas(property_id: UUID, response: Response, user=Depends(require_staff)):
+    response.headers.update(NO_CACHE)
+    with get_connection() as connection:
+        allowed = connection.execute(
+            "SELECT 1 FROM public.properties WHERE id = %s AND (created_by = %s OR %s = 'admin');",
+            (property_id, user["id"], user["role"]),
+        ).fetchone()
+        if allowed is None:
+            raise HTTPException(404, "Property not found.")
+        photos = connection.execute(
+            "SELECT id, room FROM public.property_media WHERE property_id = %s AND kind = 'panorama_room' ORDER BY room, id;",
+            (property_id,),
+        ).fetchall()
+    return photos
+
+
+@router.put("/staff/properties/{property_id}/panoramas/{room}")
+async def upload_room_panorama(property_id: UUID, room: str, version: Version, request: Request,
+                               response: Response, user=Depends(require_staff)):
+    room = " ".join(room.split())
+    if not 1 <= len(room) <= 60:
+        raise HTTPException(422, "Room name must contain 1 to 60 characters.")
+    content = await read_image(request, "panorama")
+    response.headers.update(NO_CACHE)
+    def save():
+        with get_connection() as connection, connection.cursor() as cursor:
+            lock_draft(cursor, property_id, version, user)
+            old = cursor.execute(
+                "SELECT id FROM public.property_media WHERE property_id = %s AND kind = 'panorama_room' AND lower(room) = lower(%s) FOR UPDATE;",
+                (property_id, room),
+            ).fetchone()
+            if old:
+                cursor.execute("UPDATE public.property_media SET content = %s, room = %s WHERE id = %s;",
+                               (content, room, old["id"]))
+                media_id = old["id"]
+            else:
+                media_id = uuid4()
+                cursor.execute(
+                    "INSERT INTO public.property_media(id, property_id, kind, room, content) VALUES (%s, %s, 'panorama_room', %s, %s);",
+                    (media_id, property_id, room, content),
+                )
+            return {"id": media_id, "version": bump_version(cursor, property_id)}
+    return await run_in_threadpool(save)
+
+
+@router.delete("/staff/properties/{property_id}/panoramas/{room}")
+def delete_room_panorama(property_id: UUID, room: str, version: Version, response: Response,
+                         user=Depends(require_staff)):
+    response.headers.update(NO_CACHE)
+    with get_connection() as connection, connection.cursor() as cursor:
+        lock_draft(cursor, property_id, version, user)
+        deleted = cursor.execute(
+            "DELETE FROM public.property_media WHERE property_id = %s AND kind = 'panorama_room' AND lower(room) = lower(%s) RETURNING id;",
+            (property_id, room),
+        ).fetchone()
+        if deleted is None:
+            raise HTTPException(404, "Room panorama not found.")
+        return {"version": bump_version(cursor, property_id)}
+
+
 @router.get("/properties/{property_id}/gallery")
 def public_gallery(property_id: UUID, response: Response):
     response.headers.update(NO_CACHE)
