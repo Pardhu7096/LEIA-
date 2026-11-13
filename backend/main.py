@@ -368,6 +368,25 @@ def list_conversations(user: dict = Depends(get_current_user)):
     return {"conversations": conversations}
 
 
+@app.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: UUID, user: dict = Depends(get_current_user)):
+    # Lock the owned conversation so deletion cannot race another chat write.
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM conversations WHERE id = %s AND user_id = %s FOR UPDATE;",
+                (conversation_id, user["id"]),
+            )
+            if cursor.fetchone() is None:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+            cursor.execute("DELETE FROM chat_messages WHERE conversation_id = %s;", (conversation_id,))
+            cursor.execute(
+                "DELETE FROM conversations WHERE id = %s AND user_id = %s;",
+                (conversation_id, user["id"]),
+            )
+    return Response(status_code=204)
+
+
 @app.get("/conversations/{conversation_id}")
 def get_conversation(
     conversation_id: UUID,

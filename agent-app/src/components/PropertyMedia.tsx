@@ -16,6 +16,7 @@ type MediaProps = {
 };
 
 type Photo = { id: string; room: string; is_gallery_cover: boolean };
+type RoomTour = { id: string; room: string };
 
 const roomSuggestions = ["Bedroom 1", "Bathroom 1", "Kitchen", "Hall / Living room", "Balcony", "Parking", "Exterior"];
 
@@ -28,6 +29,7 @@ export default function PropertyMedia({
   const [revision, setRevision] = useState(0);
   const [room, setRoom] = useState("");
   const [photos, setPhotos] = useState<Photo[] | null>(null);
+  const [roomTours, setRoomTours] = useState<RoomTour[]>([]);
   const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -35,14 +37,19 @@ export default function PropertyMedia({
   const base = `/staff/properties/${propertyId}`;
   const gallery = `${base}/gallery`;
   const panorama = `${base}/media/panorama`;
+  const panoramas = `${base}/panoramas`;
 
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
       try {
-        const data: Photo[] = await readResponse(await authFetch(gallery, { signal: controller.signal }));
+        const [data, tours]: [Photo[], RoomTour[]] = await Promise.all([
+          readResponse(await authFetch(gallery, { signal: controller.signal })),
+          readResponse(await authFetch(panoramas, { signal: controller.signal })),
+        ]);
         if (!controller.signal.aborted) {
           setPhotos(data);
+          setRoomTours(tours);
           setLoadError("");
         }
       } catch (cause) {
@@ -51,7 +58,7 @@ export default function PropertyMedia({
     }
     void load();
     return () => controller.abort();
-  }, [authFetch, gallery, revision]);
+  }, [authFetch, gallery, panoramas, revision]);
 
   async function update(path: string, method: string, body?: BodyInit, query = "") {
     const data = await readResponse(await authFetch(
@@ -100,7 +107,8 @@ export default function PropertyMedia({
           }
           const body = await file.arrayBuffer();
           if (isPanorama) {
-            await update(panorama, "PUT", body);
+            if (!label) throw new Error("Select a room before uploading its 360° panorama.");
+            await update(panoramas + "/" + encodeURIComponent(label), "PUT", body);
           } else {
             await update(gallery, "POST", body, `&room=${encodeURIComponent(label)}`);
           }
@@ -178,15 +186,19 @@ export default function PropertyMedia({
         </View>
       ))}
       {photos?.length === 0 && <MediaPreview path={`${base}/media/cover`} authFetch={authFetch} revision={revision} label="Existing cover photo" optional />}
-      <Text style={s.label}>360° panorama</Text>
-      <MediaPreview path={panorama} authFetch={authFetch} revision={revision} label="360° panorama" />
-      {editable && (
-        <>
-          <Text style={s.muted}>Use a 2:1 equirectangular image at least 1024 pixels wide, up to 12 MB.</Text>
-          <MediaButton label="Upload 360° panorama" disabled={busy} onPress={() => upload(true)} />
-          <MediaButton label="Remove 360° panorama" disabled={busy} onPress={() => void change(() => update(panorama, "DELETE"))} />
-        </>
-      )}
+      <Text style={s.label}>360° room panoramas</Text>
+      <Text style={s.muted}>Upload a 2:1 panorama (minimum 1024px, maximum 12 MB) for each room. Select a room above.</Text>
+      {roomTours.map((tour) => (
+        <View key={tour.id} style={s.panel}>
+          <Text style={s.label}>{tour.room}</Text>
+          {editable && <MediaButton label={"Remove " + tour.room + " panorama"} disabled={busy}
+            onPress={() => void change(() => update(panoramas + "/" + encodeURIComponent(tour.room), "DELETE"))} />}
+        </View>
+      ))}
+      {editable && <MediaButton label={"Upload 360° for " + (room.trim() || "selected room")}
+        disabled={busy || !room.trim()} onPress={() => upload(true)} />}
+      <Text style={s.muted}>Legacy panorama (if previously uploaded):</Text>
+      <MediaPreview path={panorama} authFetch={authFetch} revision={revision} label="Legacy panorama" optional />
       {busy && <Text style={s.muted}>Working…</Text>}
       {!!message && <Text style={s.success} accessibilityLiveRegion="polite">{message}</Text>}
       {!!error && <Text style={s.error} accessibilityRole="alert">{error}</Text>}

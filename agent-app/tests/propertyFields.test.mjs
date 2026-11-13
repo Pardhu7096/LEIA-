@@ -35,6 +35,7 @@ test("all editable fields survive reopening and serializing a draft", () => {
     else if (field.kind === "decimal") values[field.key] = "1200.25";
     else if (field.kind === "integer") values[field.key] = "1";
     else if (field.key === "pincode") values[field.key] = "530001";
+    else if (field.key === "owner_phone") values[field.key] = "+91 9876543210";
     else values[field.key] = "Collected value";
   }
   const saved = buildPayload(values, true);
@@ -65,3 +66,19 @@ for (const changes of [
     assert.throws(() => buildPayload({ ...draft(), ...changes }, false));
   });
 }
+
+for (const changes of [
+  { owner_phone: "not a phone" },
+  { title: "X".repeat(201) },
+  { description: "X".repeat(10001) },
+]) {
+  test(`rejects malformed or oversized input ${Object.keys(changes)[0]}`, () => {
+    assert.throws(() => buildPayload({ ...draft(), ...changes }, false));
+  });
+}
+
+test("requires owner contact details when listing consent is recorded", () => {
+  assert.throws(() => buildPayload(draft(), true));
+  const payload = buildPayload({ ...draft(), owner_name: "Owner", owner_phone: "+91 9876543210" }, true);
+  assert.equal(payload.listing_consent, true);
+});

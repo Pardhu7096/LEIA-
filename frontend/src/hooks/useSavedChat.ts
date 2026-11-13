@@ -281,6 +281,32 @@ export function useSavedChat() {
     }
   }
 
+  async function deleteConversation(id: string): Promise<boolean> {
+    if (busyRef.current || restoring) return false;
+    busyRef.current = true;
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetchRef.current(`/conversations/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(typeof data.detail === "string" ? data.detail : "Could not delete chat.");
+      }
+      setConversations((previous) => previous.filter((item) => item.id !== id));
+      if (conversationId === id) {
+        setConversationId(null);
+        setMessages([]);
+      }
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not delete chat.");
+      return false;
+    } finally {
+      busyRef.current = false;
+      setLoading(false);
+    }
+  }
+
   function newConversation() {
     if (busyRef.current || restoring) return;
 
@@ -297,6 +323,7 @@ export function useSavedChat() {
     error,
     send,
     openConversation,
+    deleteConversation,
     newConversation,
   };
 }

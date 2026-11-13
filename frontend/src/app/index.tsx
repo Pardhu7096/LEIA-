@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import { useRef, useState, type ComponentRef } from "react";
 import {
+  Alert,
   Image,
   Modal,
   Pressable,
@@ -27,6 +28,7 @@ export default function HomeScreen() {
     error,
     send,
     openConversation,
+    deleteConversation,
     newConversation,
   } = useSavedChat();
 
@@ -73,6 +75,18 @@ export default function HomeScreen() {
     void openConversation(id);
   }
 
+  function confirmDelete(id: string, title: string) {
+    const remove = () => { void deleteConversation(id); };
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      if (window.confirm(`Delete "${title}"? This cannot be undone.`)) remove();
+      return;
+    }
+    Alert.alert("Delete saved chat?", `Delete "${title}"? This cannot be undone.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: remove },
+    ]);
+  }
+
   function renderHistory() {
     return (
       <ScrollView
@@ -87,24 +101,26 @@ export default function HomeScreen() {
         )}
 
         {conversations.map((conversation) => (
-          <Pressable
-            key={conversation.id}
-            onPress={() => selectConversation(conversation.id)}
-            disabled={loading}
-            accessibilityRole="button"
-            accessibilityLabel={`Open saved chat: ${conversation.title}`}
-            style={[
-              historyStyles.item,
-              loading && styles.buttonDisabled,
-            ]}
-          >
-            <Text
-              style={historyStyles.itemText}
-              numberOfLines={2}
+          <View key={conversation.id} style={historyStyles.itemRow}>
+            <Pressable
+              onPress={() => selectConversation(conversation.id)}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel={`Open saved chat: ${conversation.title}`}
+              style={[historyStyles.item, historyStyles.itemOpen, loading && styles.buttonDisabled]}
             >
-              {conversation.title}
-            </Text>
-          </Pressable>
+              <Text style={historyStyles.itemText} numberOfLines={2}>{conversation.title}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => confirmDelete(conversation.id, conversation.title)}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete saved chat: ${conversation.title}`}
+              style={historyStyles.deleteButton}
+            >
+              <Text style={historyStyles.deleteText}>✕</Text>
+            </Pressable>
+          </View>
         ))}
       </ScrollView>
     );
