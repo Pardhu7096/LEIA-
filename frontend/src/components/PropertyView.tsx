@@ -12,6 +12,7 @@ import {
 
 import { API_URL } from "../context/AuthContext";
 import ContactLEIA from "./ContactLEIA";
+import { chooseRoomTour, roomTourUrl } from "../lib/roomTours";
 import NearbyPlaces from "./NearbyPlaces";
 import PanoramaView from "./PanoramaView";
 import PropertyGallery from "./PropertyGallery";
@@ -61,8 +62,8 @@ export default function PropertyView({ property, messages, loading, error, onAsk
       .catch(() => { if (!controller.signal.aborted) setTourError("Room tours are unavailable. Try again later."); });
     return () => controller.abort();
   }, [property.id, property.isSample]);
-  const roomTour = roomTours.find((entry) => entry.id === selectedRoom) ?? roomTours[0];
-  const tour = property.isSample ? sampleTour : roomTour ? `${API_URL}${roomTour.tour}` : property.tour;
+  const roomTour = chooseRoomTour(roomTours, selectedRoom);
+  const tour = property.isSample ? sampleTour : roomTourUrl(API_URL, roomTour, property.tour);
 
   async function ask() {
     const question = input.trim();
