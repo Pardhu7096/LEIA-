@@ -35,6 +35,7 @@ test("all editable fields survive reopening and serializing a draft", () => {
     else if (field.kind === "decimal") values[field.key] = "1200.25";
     else if (field.kind === "integer") values[field.key] = "1";
     else if (field.key === "pincode") values[field.key] = "530001";
+    else if (field.key === "owner_phone") values[field.key] = "+91 9876543210";
     else values[field.key] = "Collected value";
   }
   const saved = buildPayload(values, true);
