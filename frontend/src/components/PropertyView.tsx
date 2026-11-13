@@ -1,4 +1,4 @@
-import { useRef, useState, type ComponentRef } from "react";
+import { useEffect, useRef, useState, type ComponentRef } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 
+import { API_URL } from "../context/AuthContext";
 import ContactLEIA from "./ContactLEIA";
 import NearbyPlaces from "./NearbyPlaces";
 import PanoramaView from "./PanoramaView";
@@ -45,7 +46,23 @@ export default function PropertyView({ property, messages, loading, error, onAsk
   const [input, setInput] = useState("");
   const [nearbyOpened, setNearbyOpened] = useState(false);
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
-  const tour = property.isSample ? sampleTour : property.tour;
+  const [roomTours, setRoomTours] = useState<{ id: string; room: string; tour: string }[]>([]);
+  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  const [tourError, setTourError] = useState("");
+  useEffect(() => {
+    if (property.isSample) return;
+    const controller = new AbortController();
+    fetch(`${API_URL}/properties/${property.id}/panoramas`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load room tours.");
+        return response.json();
+      })
+      .then((data) => { if (!controller.signal.aborted) setRoomTours(data); })
+      .catch(() => { if (!controller.signal.aborted) setTourError("Room tours are unavailable. Try again later."); });
+    return () => controller.abort();
+  }, [property.id, property.isSample]);
+  const roomTour = roomTours.find((entry) => entry.id === selectedRoom) ?? roomTours[0];
+  const tour = property.isSample ? sampleTour : roomTour ? `${API_URL}${roomTour.tour}` : property.tour;
 
   async function ask() {
     const question = input.trim();
@@ -96,13 +113,25 @@ export default function PropertyView({ property, messages, loading, error, onAsk
               {property.isSample ? (
                 <Text style={tourStyles.notice}>Sample panorama — unrelated to this property.</Text>
               ) : null}
+              {roomTours.length > 0 ? (
+                <ScrollView horizontal style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, padding: 8 }}>
+                  {roomTours.map((entry) => (
+                    <Pressable key={entry.id} accessibilityRole="button" accessibilityState={{ selected: roomTour?.id === entry.id }}
+                      onPress={() => setSelectedRoom(entry.id)} style={tourStyles.close}>
+                      <Text style={tourStyles.closeText}>{entry.room}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
               <View style={tourStyles.viewer}>
-                <PanoramaView uri={tour} />
+                <PanoramaView key={roomTour?.id ?? "legacy"} uri={tour} />
               </View>
               <Text style={tourStyles.help}>Drag to look around. Use + and − to zoom.</Text>
             </>
           ) : <Text style={tourStyles.notice}>A 360° tour hasn’t been added for this property.</Text>
         ) : null}
+
+        {activeTab === "tour" && tourError ? <Text style={tourStyles.notice}>{tourError}</Text> : null}
 
         {nearbyOpened ? (
           <View style={activeTab === "nearby" ? tourStyles.viewerArea : tourStyles.hidden}>
