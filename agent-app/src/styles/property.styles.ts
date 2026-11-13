@@ -1,0 +1,141 @@
+import { StyleSheet } from "react-native";
+
+export const styles = StyleSheet.create({
+  formSection: {
+    gap: 16,
+    marginBottom: 12,
+  },
+  workspace: {
+    marginTop: 28,
+    gap: 16,
+  },
+  heading: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#294B3C",
+  },
+  muted: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: "#748171",
+  },
+  actions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  button: {
+    backgroundColor: "#355E4B",
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
+  },
+  buttonText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  secondary: {
+    backgroundColor: "#E8EEDF",
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+    minHeight: 48,
+    justifyContent: "center",
+  },
+  secondaryText: {
+    color: "#294B3C",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  disabled: {
+    opacity: 0.5,
+  },
+  panel: {
+    padding: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#DFE5D8",
+    backgroundColor: "#FFFFFF",
+    gap: 12,
+  },
+  label: {
+    color: "#294B3C",
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 7,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#DCE3D4",
+    borderRadius: 10,
+    backgroundColor: "#FAFCF8",
+    color: "#294B3C",
+    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    minHeight: 48,
+  },
+  multiline: {
+    minHeight: 90,
+    textAlignVertical: "top",
+  },
+  choice: {
+    borderWidth: 1,
+    borderColor: "#DCE3D4",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  choiceSelected: {
+    backgroundColor: "#E8EEDF",
+    borderColor: "#355E4B",
+    borderWidth: 2,
+  },
+  consentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginVertical: 8,
+  },
+  consentText: {
+    flex: 1,
+    color: "#294B3C",
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  error: {
+    color: "#A03535",
+    backgroundColor: "#FFF1EE",
+    padding: 12,
+    borderRadius: 10,
+    lineHeight: 22,
+  },
+  success: {
+    color: "#294B3C",
+    backgroundColor: "#E8EEDF",
+    padding: 12,
+    borderRadius: 10,
+  },
+  badge: {
+    color: "#587354",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
+  propertyTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#294B3C",
+  },
+  price: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#294B3C",
+  },
+});

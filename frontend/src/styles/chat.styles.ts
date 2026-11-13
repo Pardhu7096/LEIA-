@@ -11,8 +11,17 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#E3E8DF",
+  },
+
+  headerActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
   },
 
   brand: {

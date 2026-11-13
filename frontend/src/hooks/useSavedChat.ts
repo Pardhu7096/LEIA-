@@ -1,25 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useAuth } from "../context/AuthContext";
+import { API_URL, useAuth } from "../context/AuthContext";
 
 type ApiProperty = {
-  id: number;
+  id: string | number;
   title: string;
   location: string;
   price: number;
-  bedrooms: number;
-  image: string;
+  bedrooms: number | null;
+  image: string | null;
+  tour?: string | null;
   area_sqft: number;
   property_type: string;
 };
 
 export type Property = {
-  id: number;
+  id: string | number;
   title: string;
   location: string;
   price: string;
   details: string;
-  image: string;
+  isSample: boolean;
+  image: string | null;
+  tour: string | null;
 };
 
 export type Message = {
@@ -27,6 +30,7 @@ export type Message = {
   role: "user" | "assistant";
   text: string;
   properties?: Property[];
+  propertyId?: string | null;
 };
 
 type SavedMessage = {
@@ -34,6 +38,7 @@ type SavedMessage = {
   role: "user" | "assistant";
   content: string;
   properties: ApiProperty[];
+  property_id?: string | null;
 };
 
 type Conversation = {
@@ -54,13 +59,21 @@ function makeCards(listings: ApiProperty[]): Property[] {
     location: property.location,
     price: `₹${property.price.toLocaleString("en-IN")}`,
     details: [
-      `${property.bedrooms} BHK`,
+      property.property_type !== "plot" && property.bedrooms !== null
+        ? `${property.bedrooms} BHK`
+        : null,
       `${property.area_sqft.toLocaleString("en-IN")} sqft`,
       property.property_type === "independent_house"
         ? "Independent house"
-        : "Flat",
-    ].join(" • "),
-    image: property.image,
+        : property.property_type === "plot" ? "Plot" : "Flat",
+    ].filter(Boolean).join(" • "),
+    image: property.image?.startsWith("/property-media/")
+      ? `${API_URL}${property.image}`
+      : property.image,
+    tour: property.tour?.startsWith("/property-media/")
+      ? `${API_URL}${property.tour}`
+      : null,
+    isSample: typeof property.id === "number",
   }));
 }
 
@@ -70,14 +83,17 @@ function makeMessages(messages: SavedMessage[]): Message[] {
     role: message.role,
     text: message.content,
     properties: makeCards(message.properties ?? []),
+    propertyId: message.property_id,
   }));
 }
 
 export function useSavedChat() {
-  const { authFetch, token, ready } = useAuth();
+  const { authFetch } = useAuth();
 
   const fetchRef = useRef(authFetch);
-  fetchRef.current = authFetch;
+  useEffect(() => {
+    fetchRef.current = authFetch;
+  }, [authFetch]);
 
   const busyRef = useRef(false);
 
@@ -87,8 +103,6 @@ export function useSavedChat() {
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState("");
-
-  const signedIn = Boolean(token);
 
   async function request(path: string, options?: RequestInit) {
     const response = await fetchRef.current(path, options);
@@ -106,21 +120,8 @@ export function useSavedChat() {
   }
 
   useEffect(() => {
-    if (!ready) return;
-
+    // The protected chat screen mounts with a session and unmounts at sign-out.
     let active = true;
-
-    if (!signedIn) {
-      setMessages([]);
-      setConversations([]);
-      setConversationId(null);
-      setError("");
-      setRestoring(false);
-      return;
-    }
-
-    setRestoring(true);
-    setError("");
 
     async function restore() {
       try {
@@ -177,7 +178,7 @@ export function useSavedChat() {
     return () => {
       active = false;
     };
-  }, [ready, signedIn]);
+  }, []);
 
   async function openConversation(id: string) {
     if (busyRef.current || restoring) return;
@@ -205,7 +206,7 @@ export function useSavedChat() {
     }
   }
 
-  async function send(text: string): Promise<boolean> {
+  async function send(text: string, propertyId?: string): Promise<boolean> {
     const message = text.trim();
 
     if (!message || busyRef.current || restoring) return false;
@@ -235,6 +236,7 @@ export function useSavedChat() {
         body: JSON.stringify({
           message,
           conversation_id: id,
+          property_id: propertyId,
         }),
       });
 
@@ -244,11 +246,13 @@ export function useSavedChat() {
           id: String(data.user_message_id),
           role: "user",
           text: message,
+          propertyId,
         },
         {
           id: String(data.assistant_message_id),
           role: "assistant",
           text: data.reply,
+          propertyId,
           properties: makeCards(data.properties ?? []),
         },
       ]);
@@ -277,6 +281,32 @@ export function useSavedChat() {
     }
   }
 
+  async function deleteConversation(id: string): Promise<boolean> {
+    if (busyRef.current || restoring) return false;
+    busyRef.current = true;
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetchRef.current(`/conversations/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(typeof data.detail === "string" ? data.detail : "Could not delete chat.");
+      }
+      setConversations((previous) => previous.filter((item) => item.id !== id));
+      if (conversationId === id) {
+        setConversationId(null);
+        setMessages([]);
+      }
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not delete chat.");
+      return false;
+    } finally {
+      busyRef.current = false;
+      setLoading(false);
+    }
+  }
+
   function newConversation() {
     if (busyRef.current || restoring) return;
 
@@ -293,6 +323,7 @@ export function useSavedChat() {
     error,
     send,
     openConversation,
+    deleteConversation,
     newConversation,
   };
 }

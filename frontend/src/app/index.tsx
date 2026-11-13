@@ -1,5 +1,7 @@
+import { router } from "expo-router";
 import { useRef, useState, type ComponentRef } from "react";
 import {
+  Alert,
   Image,
   Modal,
   Pressable,
@@ -10,17 +12,12 @@ import {
   View,
 } from "react-native";
 
-import PanoramaView from "../components/PanoramaView";
+import ContactLEIA from "../components/ContactLEIA";
+import PropertyView from "../components/PropertyView";
 import { useSavedChat, type Property } from "../hooks/useSavedChat";
 import { styles } from "../styles/chat.styles";
 import { historyStyles } from "../styles/history.styles";
 import { tourStyles } from "../styles/tour.styles";
-
-const SAMPLE_TOUR_URL =
-  "https://cdn.pannellum.org/2.5/pannellum.htm" +
-  "#panorama=" +
-  encodeURIComponent("https://pannellum.org/images/alma.jpg") +
-  "&autoLoad=true";
 
 export default function HomeScreen() {
   const {
@@ -31,6 +28,7 @@ export default function HomeScreen() {
     error,
     send,
     openConversation,
+    deleteConversation,
     newConversation,
   } = useSavedChat();
 
@@ -55,7 +53,7 @@ export default function HomeScreen() {
     if (saved) setInput("");
   }
 
-  function closeTour() {
+  function closeListing() {
     setSelectedProperty(null);
   }
 
@@ -65,16 +63,28 @@ export default function HomeScreen() {
     newConversation();
     setInput("");
     setHistoryOpen(false);
-    closeTour();
+    closeListing();
   }
 
   function selectConversation(id: string) {
     if (loading) return;
 
     setInput("");
-    closeTour();
+    closeListing();
     setHistoryOpen(false);
     void openConversation(id);
+  }
+
+  function confirmDelete(id: string, title: string) {
+    const remove = () => { void deleteConversation(id); };
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      if (window.confirm(`Delete "${title}"? This cannot be undone.`)) remove();
+      return;
+    }
+    Alert.alert("Delete saved chat?", `Delete "${title}"? This cannot be undone.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: remove },
+    ]);
   }
 
   function renderHistory() {
@@ -91,24 +101,26 @@ export default function HomeScreen() {
         )}
 
         {conversations.map((conversation) => (
-          <Pressable
-            key={conversation.id}
-            onPress={() => selectConversation(conversation.id)}
-            disabled={loading}
-            accessibilityRole="button"
-            accessibilityLabel={`Open saved chat: ${conversation.title}`}
-            style={[
-              historyStyles.item,
-              loading && styles.buttonDisabled,
-            ]}
-          >
-            <Text
-              style={historyStyles.itemText}
-              numberOfLines={2}
+          <View key={conversation.id} style={historyStyles.itemRow}>
+            <Pressable
+              onPress={() => selectConversation(conversation.id)}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel={`Open saved chat: ${conversation.title}`}
+              style={[historyStyles.item, historyStyles.itemOpen, loading && styles.buttonDisabled]}
             >
-              {conversation.title}
-            </Text>
-          </Pressable>
+              <Text style={historyStyles.itemText} numberOfLines={2}>{conversation.title}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => confirmDelete(conversation.id, conversation.title)}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete saved chat: ${conversation.title}`}
+              style={historyStyles.deleteButton}
+            >
+              <Text style={historyStyles.deleteText}>✕</Text>
+            </Pressable>
+          </View>
         ))}
       </ScrollView>
     );
@@ -119,33 +131,36 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <Text style={styles.brand}>LEIA ✦</Text>
 
-        {!isDesktop && (
-          <Pressable
-            onPress={() => setHistoryOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Open chat history"
-            style={historyStyles.historyButton}
-          >
-            <Text style={historyStyles.buttonText}>
-              History
-            </Text>
-          </Pressable>
-        )}
+        <View style={styles.headerActions}>
+          {!isDesktop && (
+            <Pressable
+              onPress={() => setHistoryOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Open chat history"
+              style={historyStyles.historyButton}
+            >
+              <Text style={historyStyles.buttonText}>History</Text>
+            </Pressable>
+          )}
 
-        <Pressable
-          onPress={newSearch}
-          disabled={loading}
-          accessibilityRole="button"
-          accessibilityLabel="Start a new property search"
-          style={[
-            styles.newSearchButton,
-            loading && styles.buttonDisabled,
-          ]}
-        >
-          <Text style={styles.newSearchText}>
-            ＋ New search
-          </Text>
-        </Pressable>
+          <Pressable
+            onPress={newSearch}
+            disabled={loading}
+            accessibilityRole="button"
+            accessibilityLabel="Start a new property search"
+            style={[styles.newSearchButton, loading && styles.buttonDisabled]}
+          >
+            <Text style={styles.newSearchText}>＋ New search</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push("/profile")}
+            accessibilityRole="button"
+            style={styles.newSearchButton}
+          >
+            <Text style={styles.newSearchText}>Profile</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={historyStyles.layout}>
@@ -194,7 +209,7 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {messages.map((message) => (
+            {messages.filter((message) => !message.propertyId).map((message) => (
               <View key={message.id} style={styles.messageGroup}>
                 {message.role === "assistant" && (
                   <Text style={styles.assistantLabel}>
@@ -213,55 +228,42 @@ export default function HomeScreen() {
                   <Text style={styles.messageText}>
                     {message.text}
                   </Text>
+                  {message.role === "assistant" && <ContactLEIA />}
                 </View>
 
                 {!!message.properties?.length && (
                   <View style={styles.cards}>
                     {message.properties.map((property) => (
-                      <View key={property.id} style={styles.card}>
-                        <Image
-                          source={{ uri: property.image }}
-                          style={styles.photo}
-                          accessibilityLabel={
-                            `Illustrative stock photo for ${property.title}`
-                          }
-                        />
-
+                      <Pressable
+                        key={property.id}
+                        style={styles.card}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${property.title}`}
+                        disabled={loading}
+                        onPress={() => setSelectedProperty(property)}
+                      >
+                        {property.image ? (
+                          <Image
+                            source={{ uri: property.image }}
+                            style={styles.photo}
+                            accessibilityLabel={`Photo for ${property.title}`}
+                          />
+                        ) : null}
                         <View style={styles.cardBody}>
-                          <Text style={styles.sample}>
-                            SAMPLE LISTING
-                          </Text>
-
-                          <Text style={styles.price}>
-                            {property.price}
-                          </Text>
-
-                          <Text style={styles.title}>
-                            {property.title}
-                          </Text>
-
-                          <Text style={styles.subtitle}>
-                            {property.location}
-                          </Text>
-
-                          <Text style={styles.details}>
-                            {property.details}
-                          </Text>
-
-                          <Pressable
-                            onPress={() => setSelectedProperty(property)}
-                            accessibilityRole="button"
-                            accessibilityLabel={
-                              `Open sample 360-degree tour for ${property.title}`
-                            }
-                            style={tourStyles.button}
-                          >
+                          {property.isSample ? (
+                            <Text style={styles.sample}>SAMPLE LISTING</Text>
+                          ) : null}
+                          <Text style={styles.price}>{property.price}</Text>
+                          <Text style={styles.title}>{property.title}</Text>
+                          <Text style={styles.subtitle}>{property.location}</Text>
+                          <Text style={styles.details}>{property.details}</Text>
+                          <View style={tourStyles.button}>
                             <Text style={tourStyles.buttonText}>
-                              View sample 360° ↗
+                              {property.isSample ? "Open sample tour" : "Open property"}
                             </Text>
-                          </Pressable>
+                          </View>
                         </View>
-                      </View>
+                      </Pressable>
                     ))}
                   </View>
                 )}
@@ -311,7 +313,7 @@ export default function HomeScreen() {
             </View>
 
             <Text style={styles.disclaimer}>
-              AI responses may contain mistakes. Listings and photos are examples.
+              AI responses may contain mistakes. Sample listings are labeled.
             </Text>
           </View>
         </View>
@@ -344,44 +346,17 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      <Modal
-        visible={selectedProperty !== null}
-        animationType="slide"
-        onRequestClose={closeTour}
-      >
-        <View style={tourStyles.screen}>
-          <View style={tourStyles.header}>
-            <Text style={tourStyles.title}>
-              {selectedProperty?.title ?? "Sample tour"}
-            </Text>
-
-            <Pressable
-              onPress={closeTour}
-              accessibilityRole="button"
-              accessibilityLabel="Close 360-degree tour"
-              style={tourStyles.close}
-            >
-              <Text style={tourStyles.closeText}>
-                Close ✕
-              </Text>
-            </Pressable>
-          </View>
-
-          <Text style={tourStyles.notice}>
-            Sample panorama — unrelated to this property.
-          </Text>
-
-          <View style={tourStyles.viewer}>
-            {selectedProperty !== null && (
-              <PanoramaView uri={SAMPLE_TOUR_URL} />
-            )}
-          </View>
-
-          <Text style={tourStyles.help}>
-            Drag to look around. Use + and − to zoom.
-          </Text>
-        </View>
-      </Modal>
+      {selectedProperty ? (
+        <PropertyView
+          key={selectedProperty.id}
+          property={selectedProperty}
+          messages={messages.filter((message) => message.propertyId === String(selectedProperty.id))}
+          loading={loading}
+          error={error}
+          onAsk={send}
+          onClose={closeListing}
+        />
+      ) : null}
     </View>
   );
 }

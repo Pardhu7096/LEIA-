@@ -1,0 +1,14 @@
+# Dependencies for the isolated CRM and customer search tests.
+fastapi>=0.115,<1
+pydantic>=2.9,<3
+psycopg[binary]>=3.2,<4
+python-dotenv>=1,<2
+pwdlib[argon2]>=0.3,<1
+PyJWT>=2.10,<3
+email-validator>=2,<3
+httpx>=0.28,<1
+pytest>=8,<10
+
+groq>=0.11,<2
+
+-r requirements-media.txt
