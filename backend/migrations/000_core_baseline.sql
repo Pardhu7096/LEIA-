@@ -3,19 +3,24 @@
 -- Without it, an empty database (new staging/production server) cannot be built
 -- from this repository: 001 fails on the missing public.users table.
 --
--- Every statement is IF NOT EXISTS, so installations that already have these
--- tables are adopted unchanged and never altered or dropped.
+-- The definitions reproduce the development database (PostgreSQL 18.6) as compared
+-- on 13 November 2026, including its CHECK constraints, indexes, column types and
+-- defaults. `python schema_report.py --compare tests/expected_schema.json` checks
+-- any database against the schema these migrations build.
 --
--- The column set is derived from what the API reads and writes. Before the first
--- production use, compare it with `pg_dump --schema-only` of the original
--- development database and reconcile any difference in a follow-up migration.
+-- Every statement is IF NOT EXISTS, so installations that already have these
+-- tables (the development database) are adopted unchanged: nothing is altered,
+-- dropped or rewritten there. chat_messages.property_id is left to 005, which
+-- adds it only where it is missing, so both kinds of database converge.
 CREATE TABLE IF NOT EXISTS public.users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) NOT NULL,
     email VARCHAR(254) NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'agent', 'admin')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- The API lower-cases addresses before every insert and lookup.
+    CONSTRAINT email_lowercase CHECK (email = lower(email))
 );
 
 CREATE TABLE IF NOT EXISTS public.auth_sessions (
@@ -24,13 +29,15 @@ CREATE TABLE IF NOT EXISTS public.auth_sessions (
     refresh_token_hash TEXT NOT NULL UNIQUE,
     expires_at TIMESTAMPTZ NOT NULL,
     revoked_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT session_expiry_valid CHECK (expires_at > created_at)
 );
 
+-- No id default: the API always supplies the conversation id (uuid4).
 CREATE TABLE IF NOT EXISTS public.conversations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    title VARCHAR(200) NOT NULL DEFAULT 'New property search',
+    title TEXT NOT NULL DEFAULT 'New property search',
     filters JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -45,6 +52,15 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
     properties JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- The indexes behind session lookups by account, message history in order and
+-- the saved-chat list (newest first). Same names as in development.
+CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx
+    ON public.auth_sessions (user_id);
+CREATE INDEX IF NOT EXISTS chat_messages_conversation_idx
+    ON public.chat_messages (conversation_id, id);
+CREATE INDEX IF NOT EXISTS conversations_user_updated_idx
+    ON public.conversations (user_id, updated_at DESC);
 
 -- Least privilege for the API role used by existing installations.
 DO $$ BEGIN
