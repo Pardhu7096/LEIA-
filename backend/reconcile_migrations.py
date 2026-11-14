@@ -345,6 +345,58 @@ def verify_adoption(before_path: Path, after_path: Path, added: list[str]) -> in
     return 0 if all(results) else 1
 
 
+def verify_migration(before_path: Path, after_path: Path, name: str) -> int:
+    """Check that the only change between two owner status reports is migration
+    `name`: recorded once, the schema moved exactly from the snapshot before it to
+    the snapshot after it, and every table's data and ownership is unchanged
+    (apart from the one new history row). Exit 1 on anything else."""
+    before = json.loads(before_path.read_text(encoding="utf-8-sig"))
+    after = json.loads(after_path.read_text(encoding="utf-8-sig"))
+    names = [p.name for p in MIGRATIONS]
+    results = []
+
+    def check(label, ok, detail=""):
+        results.append(ok)
+        print(f"{'PASS' if ok else 'FAIL'}  {label}{': ' + detail if detail and not ok else ''}")
+
+    for report, path in ((before, before_path), (after, after_path)):
+        if report.get("checksums") is None or report.get("schema") is None:
+            check(f"{path.name} is a complete owner report", False, "run status --json as the owner")
+            return 1
+    if name not in names or names.index(name) == 0:
+        check(f"{name} is a shipped migration after the first", False)
+        return 1
+    previous = names[names.index(name) - 1]
+    old, new = before["history"]["recorded"] or [], after["history"]["recorded"] or []
+    check("history = before + migration", sorted(new) == sorted(old + [name]), f"{new}")
+    check("every migration recorded exactly once", len(new) == len(set(new)), str(new))
+    check("pending = before - migration",
+          after["pending"] == [n for n in before["pending"] if n != name], str(after["pending"]))
+    check(f"before: schema was exactly the state after {previous}",
+          before["matches"].get(previous) == [], str(before["matches"].get(previous)))
+    check(f"after: schema is exactly the state after {name}",
+          after["matches"].get(name) == [], str(after["matches"].get(name)))
+    want = schema_report.differences(json.loads(snapshot_for(previous).read_text(encoding="utf-8")),
+                                     json.loads(snapshot_for(name).read_text(encoding="utf-8")))
+    got = schema_report.differences(before["schema"], after["schema"])
+    check(f"schema changes are exactly those of {name} ({len(want)})", got == want,
+          "; ".join(got))
+    for field in ("database_owner", "table_owners", "recorded_not_shipped"):
+        check(f"{field} unchanged", before.get(field) == after.get(field),
+              f"{before.get(field)!r} -> {after.get(field)!r}")
+    expected_counts = dict(before["row_counts"])
+    expected_counts[TRACKING] = expected_counts.get(TRACKING, 0) + 1
+    check("row counts unchanged except history (+1)", after["row_counts"] == expected_counts,
+          f"{after['row_counts']} vs {expected_counts}")
+    other = {t: d for t, d in before["checksums"].items() if t != TRACKING}
+    check("content checksums unchanged for every other table",
+          {t: d for t, d in after["checksums"].items() if t != TRACKING} == other)
+    media = after.get("property_media") or {}
+    check("no media row violates the new rule", media.get("invalid_for_007") == 0, str(media))
+    print("VERIFIED." if all(results) else f"{results.count(False)} check(s) failed.")
+    return 0 if all(results) else 1
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--owner", help="Database owner role; prompts privately for its password.")
@@ -363,6 +415,11 @@ def main(argv=None) -> int:
     verify_parser.add_argument("before", type=Path)
     verify_parser.add_argument("after", type=Path)
     verify_parser.add_argument("--added", action="append", required=True, metavar="NAME")
+    migration_parser = sub.add_parser(
+        "verify-migration", help="Compare status reports before and after one migration.")
+    migration_parser.add_argument("before", type=Path)
+    migration_parser.add_argument("after", type=Path)
+    migration_parser.add_argument("--applied", required=True, metavar="NAME")
     compare_parser = sub.add_parser(
         "compare-status", help="Compare two status --json files; no database connection.")
     compare_parser.add_argument("first", type=Path)
@@ -372,6 +429,8 @@ def main(argv=None) -> int:
         help="Accept exactly this database-owner pair (e.g. leia_app:postgres); "
              "table owners are still compared.")
     args = parser.parse_args(argv)
+    if args.command == "verify-migration":
+        return verify_migration(args.before, args.after, args.applied)
     if args.command == "verify-adoption":
         return verify_adoption(args.before, args.after, args.added)
     if args.command == "compare-status":
