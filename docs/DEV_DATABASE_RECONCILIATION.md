@@ -17,6 +17,31 @@ $env:DB_HOST = "127.0.0.1"; $env:DB_PORT = "5433"; $env:DB_NAME = "leia"
 New-Item -ItemType Directory -Force D:\LEIA-backups | Out-Null
 ```
 
+## Automated A–C: `scripts/windows/leia-step1-backup-and-check.ps1`
+
+Runs A, C and B below in one go, in Windows PowerShell 5.1 or 7 (no database change):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\LEIA-backups\leia-step1-backup-and-check.ps1
+```
+
+- Updates the worktree only if it is on `audit/leia-ec2-readiness`, has no changes to
+  tracked files and no local commits (fast-forward only; untracked files are kept), and
+  checks that the reviewed tool version is present.
+- Every connection to the live database runs with `default_transaction_read_only=on`
+  and the script verifies that before going on. Only `createdb`/`pg_restore` into the
+  new `leia_restore_check_<timestamp>` database run without it.
+- Verifies the backup by restoring it and comparing the `status --json` reports of the
+  live and restored databases with `compare-status`: schema, owners, migration history,
+  row counts and per-table content checksums.
+- The scratch database is kept, and the log prints the `dropdb` command; add
+  `-DropScratchAfterVerify` to drop it automatically after a successful comparison.
+- Every command's exit code is checked; the first failure stops the run with
+  `RESULT: STOPPED - <reason>`. The owner password is asked once, kept in memory, and
+  removed from the environment in a `finally` block; it is never logged.
+- Stop the backend first: writes between the backup and the comparison would make the
+  comparison fail (safely).
+
 ## A. Why `pg_dump -U leia_app` failed (read-only)
 
 The Python app reads `DB_USER`/`DB_PASSWORD` from `backend\.env`. `pg_dump` does not
