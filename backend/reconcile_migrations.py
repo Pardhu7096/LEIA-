@@ -223,6 +223,8 @@ def compare_status(first: Path, second: Path,
 
 
 def adopt(connection, through: str, apply: bool) -> int:
+    """Record 000..THROUGH when the live schema equals their snapshot. Without
+    `apply` the session is read-only: it reports exactly what would be written."""
     names = [p.name for p in MIGRATIONS]
     if through not in names:
         print(f"Unknown migration {through!r}. Shipped: {', '.join(names)}")
@@ -233,7 +235,11 @@ def adopt(connection, through: str, apply: bool) -> int:
         return 2
     wanted = names[: names.index(through) + 1]
 
+    if not apply:
+        connection.read_only = True  # A dry run cannot write, even by mistake.
     connection.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_ID,))
+    tracking_exists = connection.execute(
+        f"SELECT to_regclass('public.{TRACKING}') IS NOT NULL AS t").fetchone()["t"]
     applied = recorded(connection) or []
     beyond = [n for n in applied if n not in wanted]
     if beyond:
@@ -247,6 +253,27 @@ def adopt(connection, through: str, apply: bool) -> int:
         return 1
 
     missing = [n for n in wanted if n not in applied]
+    app_role = connection.execute(
+        "SELECT 1 FROM pg_roles WHERE rolname = 'leia_app'").fetchone() is not None
+    app_reads = app_role and tracking_exists and connection.execute(
+        f"SELECT has_table_privilege('leia_app', 'public.{TRACKING}', 'SELECT') AS ok"
+    ).fetchone()["ok"]
+    print(f"Schema verified identical to the state after {through}.")
+    print(f"Already recorded: {', '.join(applied) or '(none)'}")
+    if not apply:
+        print("Dry run (read-only session). These statements would run in one transaction:")
+        if not tracking_exists:
+            print(f"  CREATE TABLE public.{TRACKING} (name TEXT PRIMARY KEY, "
+                  "applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);")
+        if app_role and not app_reads:
+            print(f"  GRANT SELECT ON public.{TRACKING} TO leia_app;")
+        for name in missing:
+            print(f"  INSERT INTO public.{TRACKING} (name) VALUES ('{name}');")
+        print(f"Would record: {', '.join(missing) or '(nothing, history already complete)'}")
+        print("Dry run: nothing changed. Add --apply to record.")
+        connection.rollback()
+        return 0
+
     connection.execute(f"""CREATE TABLE IF NOT EXISTS public.{TRACKING} (
         name TEXT PRIMARY KEY,
         applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
@@ -257,13 +284,7 @@ def adopt(connection, through: str, apply: bool) -> int:
     END $$;""")
     for name in missing:
         connection.execute(f"INSERT INTO public.{TRACKING} (name) VALUES (%s)", (name,))
-    verb = "Recorded" if apply else "Would record"
-    print(f"Schema verified identical to the state after {through}.")
-    print(f"{verb}: {', '.join(missing) or '(nothing, history already complete)'}")
-    if not apply:
-        connection.rollback()
-        print("Dry run: nothing changed. Add --apply to record.")
-        return 0
+    print(f"Recorded: {', '.join(missing) or '(nothing, history already complete)'}")
     connection.commit()
     return 0
 
