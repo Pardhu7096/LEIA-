@@ -222,9 +222,13 @@ def compare_status(first: Path, second: Path,
     return 1 if problems else 0
 
 
-def adopt(connection, through: str, apply: bool) -> int:
-    """Record 000..THROUGH when the live schema equals their snapshot. Without
-    `apply` the session is read-only: it reports exactly what would be written."""
+def adopt(connection, through: str, apply: bool, expect: list[str] | None = None) -> int:
+    """Record 000..THROUGH when the live schema equals their snapshot.
+
+    The statements are built once; a dry run (read-only session) prints them and
+    --apply executes exactly those, in one transaction under the runner's lock.
+    `expect` (the migration names the reviewer expects to be recorded) makes the run
+    refuse if the database has changed since the review."""
     names = [p.name for p in MIGRATIONS]
     if through not in names:
         print(f"Unknown migration {through!r}. Shipped: {', '.join(names)}")
@@ -253,40 +257,92 @@ def adopt(connection, through: str, apply: bool) -> int:
         return 1
 
     missing = [n for n in wanted if n not in applied]
+    if expect is not None and sorted(expect) != sorted(missing):
+        print(f"Expected to record {', '.join(sorted(expect)) or '(nothing)'}, but the database "
+              f"needs {', '.join(missing) or '(nothing)'}; refusing. Nothing changed.")
+        return 2
     app_role = connection.execute(
         "SELECT 1 FROM pg_roles WHERE rolname = 'leia_app'").fetchone() is not None
     app_reads = app_role and tracking_exists and connection.execute(
         f"SELECT has_table_privilege('leia_app', 'public.{TRACKING}', 'SELECT') AS ok"
     ).fetchone()["ok"]
+
+    # (shown, executed, parameters): the same list is printed and executed.
+    statements = []
+    if not tracking_exists:
+        ddl = (f"CREATE TABLE public.{TRACKING} (name TEXT PRIMARY KEY, "
+               "applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);")
+        statements.append((ddl, ddl, None))
+    if app_role and not app_reads:
+        grant = f"GRANT SELECT ON public.{TRACKING} TO leia_app;"
+        statements.append((grant, grant, None))
+    for name in missing:
+        statements.append((f"INSERT INTO public.{TRACKING} (name) VALUES ('{name}');",
+                           f"INSERT INTO public.{TRACKING} (name) VALUES (%s);", (name,)))
+
     print(f"Schema verified identical to the state after {through}.")
     print(f"Already recorded: {', '.join(applied) or '(none)'}")
     if not apply:
         print("Dry run (read-only session). These statements would run in one transaction:")
-        if not tracking_exists:
-            print(f"  CREATE TABLE public.{TRACKING} (name TEXT PRIMARY KEY, "
-                  "applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);")
-        if app_role and not app_reads:
-            print(f"  GRANT SELECT ON public.{TRACKING} TO leia_app;")
-        for name in missing:
-            print(f"  INSERT INTO public.{TRACKING} (name) VALUES ('{name}');")
+        for shown, _, _ in statements:
+            print(f"  {shown}")
         print(f"Would record: {', '.join(missing) or '(nothing, history already complete)'}")
         print("Dry run: nothing changed. Add --apply to record.")
         connection.rollback()
         return 0
 
-    connection.execute(f"""CREATE TABLE IF NOT EXISTS public.{TRACKING} (
-        name TEXT PRIMARY KEY,
-        applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
-    connection.execute(f"""DO $$ BEGIN
-        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'leia_app') THEN
-            GRANT SELECT ON public.{TRACKING} TO leia_app;
-        END IF;
-    END $$;""")
-    for name in missing:
-        connection.execute(f"INSERT INTO public.{TRACKING} (name) VALUES (%s)", (name,))
-    print(f"Recorded: {', '.join(missing) or '(nothing, history already complete)'}")
+    print("Executing in one transaction:")
+    for shown, executed, parameters in statements:
+        connection.execute(executed, parameters)
+        print(f"  {shown}")
     connection.commit()
+    print(f"Committed. Recorded: {', '.join(missing) or '(nothing, history already complete)'}")
     return 0
+
+
+def verify_adoption(before_path: Path, after_path: Path, added: list[str]) -> int:
+    """Check that the only change between two status reports is the recorded history
+    (exactly `added`, once each), the API role's read access to it, and that history
+    table's row count and checksum. Exit 1 on anything else."""
+    before = json.loads(before_path.read_text(encoding="utf-8-sig"))
+    after = json.loads(after_path.read_text(encoding="utf-8-sig"))
+    results = []
+
+    def check(label, ok, detail=""):
+        results.append(ok)
+        print(f"{'PASS' if ok else 'FAIL'}  {label}{': ' + detail if detail and not ok else ''}")
+
+    for report, path in ((before, before_path), (after, after_path)):
+        if report.get("checksums") is None or report.get("schema") is None:
+            check(f"{path.name} is a complete owner report", False, "run status --json as the owner")
+            return 1
+    old, new = before["history"]["recorded"] or [], after["history"]["recorded"] or []
+    check("history = before + added", sorted(new) == sorted(old + added),
+          f"{new} vs {sorted(old + added)}")
+    check("every migration recorded exactly once", len(new) == len(set(new)), str(new))
+    check("added migrations were not recorded before", not set(added) & set(old), str(old))
+    check("pending = before - added",
+          after["pending"] == [n for n in before["pending"] if n not in added],
+          f"{after['pending']}")
+    check("leia_app can read the history",
+          after["history"]["leia_app_can_read"] in (True, None),
+          str(after["history"]["leia_app_can_read"]))
+    differences = schema_report.differences(before["schema"], after["schema"])
+    check("schema unchanged", not differences, "; ".join(differences))
+    for field in ("database_owner", "table_owners", "matches", "property_media",
+                  "recorded_not_shipped"):
+        check(f"{field} unchanged", before.get(field) == after.get(field),
+              f"{before.get(field)!r} -> {after.get(field)!r}")
+    expected_counts = dict(before["row_counts"])
+    expected_counts[TRACKING] = expected_counts.get(TRACKING, 0) + len(added)
+    check("row counts unchanged except history (+%d)" % len(added),
+          after["row_counts"] == expected_counts,
+          f"{after['row_counts']} vs {expected_counts}")
+    other = {t: d for t, d in before["checksums"].items() if t != TRACKING}
+    check("content checksums unchanged for every other table",
+          {t: d for t, d in after["checksums"].items() if t != TRACKING} == other)
+    print("VERIFIED." if all(results) else f"{results.count(False)} check(s) failed.")
+    return 0 if all(results) else 1
 
 
 def main(argv=None) -> int:
@@ -300,6 +356,13 @@ def main(argv=None) -> int:
     adopt_parser = sub.add_parser("adopt", help="Record already-present migrations.")
     adopt_parser.add_argument("--through", required=True, help="Last migration to record.")
     adopt_parser.add_argument("--apply", action="store_true", help="Commit; default is a dry run.")
+    adopt_parser.add_argument("--expect-record", action="append", metavar="NAME",
+                              help="Refuse unless exactly these migrations would be recorded.")
+    verify_parser = sub.add_parser(
+        "verify-adoption", help="Compare status reports before and after adopt; no connection.")
+    verify_parser.add_argument("before", type=Path)
+    verify_parser.add_argument("after", type=Path)
+    verify_parser.add_argument("--added", action="append", required=True, metavar="NAME")
     compare_parser = sub.add_parser(
         "compare-status", help="Compare two status --json files; no database connection.")
     compare_parser.add_argument("first", type=Path)
@@ -309,6 +372,8 @@ def main(argv=None) -> int:
         help="Accept exactly this database-owner pair (e.g. leia_app:postgres); "
              "table owners are still compared.")
     args = parser.parse_args(argv)
+    if args.command == "verify-adoption":
+        return verify_adoption(args.before, args.after, args.added)
     if args.command == "compare-status":
         owners = None
         if args.allow_database_owner_difference:
@@ -322,7 +387,7 @@ def main(argv=None) -> int:
         os.environ["DB_PASSWORD"] = getpass("Database owner password: ")
     with get_connection() as connection:
         if args.command == "adopt":
-            return adopt(connection, args.through, args.apply)
+            return adopt(connection, args.through, args.apply, args.expect_record)
         if args.command == "status":
             return status(connection, args.json, args.output)
         return status(connection)

@@ -378,3 +378,96 @@ def test_restore_created_with_the_live_owner_compares_identical(scratch, tmp_pat
             connection.execute(f'ALTER DATABASE "{source}" OWNER TO CURRENT_USER')
             connection.execute("ALTER TABLE users OWNER TO CURRENT_USER")
             connection.execute(f"DROP ROLE {role}")
+
+
+@pytest.fixture
+def leia_app_role(scratch):
+    """The literal API role name the history GRANT targets (cluster-wide)."""
+    with scratch(autocommit=True) as connection:
+        created = connection.execute(
+            "SELECT 1 FROM pg_roles WHERE rolname = 'leia_app'").fetchone() is None
+        if created:
+            connection.execute("CREATE ROLE leia_app NOLOGIN")
+    try:
+        yield
+    finally:
+        with scratch(autocommit=True) as connection:
+            connection.execute("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM leia_app")
+            if created:
+                connection.execute("DROP ROLE leia_app")
+
+
+def _statements(out: str) -> list[str]:
+    return [line.strip() for line in out.splitlines()
+            if line.startswith("  ") and line.strip().endswith(";")]
+
+
+def test_step3_apply_runs_exactly_the_reviewed_statements(
+        scratch, leia_app_role, tmp_path, capsys):
+    """The 14 Nov development situation: 001-006 recorded, 000 not, leia_app
+    cannot read the history. Dry run, apply and post-change verification."""
+    build_untracked_006(scratch, tracked=[p.name for p in MIGRATIONS[1:7]])
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    assert reconcile_migrations.main(["status", "--json", "--output", str(before)]) == 0
+    capsys.readouterr()
+
+    args = ["adopt", "--through", THROUGH, "--expect-record", "000_core_baseline.sql"]
+    assert reconcile_migrations.main(args) == 0
+    reviewed = _statements(capsys.readouterr().out)
+    assert reviewed == [
+        "GRANT SELECT ON public.crm_schema_migrations TO leia_app;",
+        "INSERT INTO public.crm_schema_migrations (name) VALUES ('000_core_baseline.sql');"]
+    assert history(scratch) == [p.name for p in MIGRATIONS[1:7]]  # dry run wrote nothing
+
+    assert reconcile_migrations.main(args + ["--apply"]) == 0
+    out = capsys.readouterr().out
+    assert _statements(out) == reviewed
+    assert "Committed. Recorded: 000_core_baseline.sql" in out
+    assert history(scratch) == [p.name for p in MIGRATIONS[:7]]
+
+    assert reconcile_migrations.main(["status", "--json", "--output", str(after)]) == 0
+    capsys.readouterr()
+    assert reconcile_migrations.main(
+        ["verify-adoption", str(before), str(after), "--added", "000_core_baseline.sql"]) == 0
+    out = capsys.readouterr().out
+    assert "FAIL" not in out and out.strip().endswith("VERIFIED.")
+    report = json.loads(after.read_text())
+    assert report["pending"] == ["007_room_panoramas.sql"]
+    assert report["history"]["leia_app_can_read"] is True
+
+    # Running it again: nothing left to record, so the expectation no longer holds.
+    assert reconcile_migrations.main(args + ["--apply"]) == 2
+    assert "refusing. Nothing changed." in capsys.readouterr().out
+
+
+def test_step3_refuses_when_the_database_changed_since_review(scratch, leia_app_role, capsys):
+    build_untracked_006(scratch, tracked=[p.name for p in MIGRATIONS[2:7]])  # 001 missing too
+    assert reconcile_migrations.main(["adopt", "--through", THROUGH, "--apply",
+                                      "--expect-record", "000_core_baseline.sql"]) == 2
+    assert "needs 000_core_baseline.sql, 001_property_drafts.sql; refusing" in capsys.readouterr().out
+    assert history(scratch) == [p.name for p in MIGRATIONS[2:7]]
+    with scratch() as connection:
+        assert connection.execute(
+            "SELECT has_table_privilege('leia_app', 'public.crm_schema_migrations', 'SELECT') AS ok"
+        ).fetchone()["ok"] is False
+
+
+@pytest.mark.parametrize("tamper,failed", [
+    ("UPDATE users SET name = 'Changed'", "content checksums unchanged"),
+    ("INSERT INTO crm_schema_migrations (name) VALUES ('007_room_panoramas.sql')",
+     "history = before + added"),
+    ("DROP INDEX request_limits_expiry", "schema unchanged"),
+])
+def test_verify_adoption_catches_anything_beyond_the_reviewed_change(
+        scratch, leia_app_role, tmp_path, capsys, tamper, failed):
+    build_untracked_006(scratch, tracked=[p.name for p in MIGRATIONS[1:7]])
+    before, after = tmp_path / "before.json", tmp_path / "after.json"
+    assert reconcile_migrations.main(["status", "--json", "--output", str(before)]) == 0
+    assert reconcile_migrations.main(["adopt", "--through", THROUGH, "--apply"]) == 0
+    with scratch() as connection:
+        connection.execute(tamper)
+    assert reconcile_migrations.main(["status", "--json", "--output", str(after)]) == 0
+    capsys.readouterr()
+    assert reconcile_migrations.main(
+        ["verify-adoption", str(before), str(after), "--added", "000_core_baseline.sql"]) == 1
+    assert f"FAIL  {failed}" in capsys.readouterr().out
