@@ -81,6 +81,21 @@ git -C D:\LEIA-schema-audit pull --ff-only
 powershell -ExecutionPolicy Bypass -File D:\LEIA-schema-audit\scripts\windows\leia-step4-prepare-007.ps1
 ```
 
+### Database-target safeguards (step 4 and 5)
+
+Python tools take the database from `DB_NAME`; an environment variable wins and
+`backend/.env` (`DB_NAME=leia`) only fills a variable that is not set. So a script that
+failed to set `DB_NAME` would reach `leia`, and an empty `DB_NAME` reaches the driver's
+fallback database. Therefore every runner call that can write passes
+`--expect-database <name>`, which `migrate_crm.py` checks against `current_database()`
+on the same connection before taking the lock or running anything, and refuses on a
+mismatch; the command line refuses any writing run without it. Rollbacks go through
+the same runner (`--rollback`). Every status report the scripts use must name the
+database it was meant for; the scratch copy must be new and empty before the restore;
+`createdb`, `pg_restore` and `dropdb` only ever receive the checked scratch name, never
+`leia`; every connection to `leia` in step 4 is read-only. `test_database_target.py`
+reproduces each mistake and shows `leia` unchanged.
+
 ## Step 5: apply 007 (needs approval) — `leia-step5-apply-007.ps1 -BackupStamp <step-4 stamp>`
 
 Pre-checks (read-only): worktree and 007 hash; the step-4 backup hash; `leia` still
@@ -94,8 +109,9 @@ COMMIT OUTCOME UNCERTAIN (do not rerun; inspect first); only a verified run exit
 ## Rollback of 007
 
 `backend/rollback/007_room_panoramas.down.sql` (outside the migration chain), as the
-owner with the backend stopped, one transaction:
-`psql -v ON_ERROR_STOP=1 -h <host> -p <port> -U postgres -d leia -f <file>`.
+owner with the backend stopped, one transaction, through the runner so the target is
+checked on the connection that writes:
+`python migrate_crm.py --owner postgres --expect-database leia --rollback 007_room_panoramas.sql`.
 It refuses unless 007 is recorded and no room panoramas exist (deleting customer
 media is a separate decision), then restores 004's rule exactly, drops the room index
 and removes the 007 history row; tests show the result is Identical to the pre-007
@@ -240,7 +256,7 @@ difference at all. Otherwise it records nothing.
 Stop the local backend, then:
 
 ```powershell
-& $PY migrate_crm.py --owner postgres            # expected: Applied 007_room_panoramas.sql
+& $PY migrate_crm.py --owner postgres --expect-database leia   # expected: Applied 007_room_panoramas.sql
 & $PY reconcile_migrations.py --owner postgres   # pending: (none); same row counts as in B
 ```
 

@@ -10,7 +10,7 @@ After merging/pulling the changes, stop the backend, then run in PowerShell:
 
 ```powershell
 cd D:\LEIA\backend
-.\.venv\Scripts\python.exe .\migrate_crm.py --owner postgres
+.\.venv\Scripts\python.exe .\migrate_crm.py --owner postgres --expect-database leia
 ```
 
 Enter the **local PostgreSQL owner's password** at the hidden prompt. This is not

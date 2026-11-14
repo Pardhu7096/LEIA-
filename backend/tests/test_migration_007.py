@@ -160,7 +160,7 @@ def test_upgrade_changes_only_the_schema_and_keeps_every_row(site, scratch, tmp_
     before = status(tmp_path / "before.json")
     capsys.readouterr()
     assert migrate_crm.migrate(expect=[M007]) == 0
-    assert capsys.readouterr().out.splitlines()[0] == f"Applied {M007}"
+    assert f"Applied {M007}" in capsys.readouterr().out.splitlines()
     after = status(tmp_path / "after.json")
     capsys.readouterr()
     assert reconcile_migrations.main(

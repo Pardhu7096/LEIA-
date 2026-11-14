@@ -183,7 +183,7 @@ No application secret (database, JWT, Groq, Google) is ever stored in GitHub.
    the pipeline never changes the database.
 4. On the server, build the schema as the database owner (prompts for its password):
    ```bash
-   cd /opt/leia/ENV/releases/<commit> && .venv/bin/python migrate_crm.py --owner leia_owner_ENV
+   cd /opt/leia/ENV/releases/<commit> && .venv/bin/python migrate_crm.py --owner leia_owner_ENV --expect-database leia_ENV
    ```
 5. Run the workflow again for the same commit. It should end with
    `Release <commit> healthy in ENV`.

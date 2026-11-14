@@ -98,7 +98,7 @@ def test_untracked_database_is_adopted_then_007_applied(scratch, capsys):
     assert "history already complete" in capsys.readouterr().out
 
     migrate_crm.migrate()
-    assert capsys.readouterr().out.splitlines()[0] == "Applied 007_room_panoramas.sql"
+    assert "Applied 007_room_panoramas.sql" in capsys.readouterr().out.splitlines()
     assert schema_report.differences(EXPECTED, snapshot(scratch)) == []
     assert counts(scratch) == before
 
