@@ -31,15 +31,20 @@ deployment corrupts the release link; an empty database cannot be built; the app
 Merging #6 first means the first thing `main` ever receives already has the fixes, in one reviewed
 promotion, with no PR base changes.
 
-1. **Compare the baseline migration with the real development database.** On the development
-   machine: `pg_dump --schema-only -t users -t auth_sessions -t conversations -t chat_messages <dev-db>`
-   and compare with `backend/migrations/000_core_baseline.sql`. If a column, constraint or index
-   differs, say so on PR #6 before merging; it is fixed there, not later.
+1. **Confirm the reconciled baseline against the real development database.** The six
+   differences found on 13 November are fixed on PR #6. On the development machine, from the
+   PR #6 checkout (read-only; uses `backend/.env`, changes nothing):
+   ```powershell
+   cd D:\LEIA\backend
+   .\.venv\Scripts\python.exe .\schema_report.py --compare .\tests\expected_schema.json
+   ```
+   Expected: `Schema matches.` Every other line is a remaining difference: say so on PR #6
+   before merging; it is fixed there, not later. Do not run `migrate_crm.py` for this check.
 2. **Review PR #6**, mark it *Ready for review*, and merge it into
    `codex/customer-quality-checks` with **Create a merge commit**.
    Expected: the integration branch tree becomes identical to the audit branch tree.
 3. **Wait for the checks on PR #7 to re-run** (it updates itself when step 2 lands). Expected:
-   `agent-app`, `crm-api` (73 passed), `customer-frontend` all green; 56 commits (55 plus the merge commit); 88 files changed.
+   `agent-app`, `crm-api` (79 passed), `customer-frontend` all green; 56 commits (55 plus the merge commit); 88 files changed.
 4. **Protect `main`** with the settings in section 4 — before anything is merged into it.
 5. **Create the `staging` and `production` environments** with the rules in section 4. An
    environment that does not exist is created automatically, with no protection, the first time
@@ -178,7 +183,7 @@ and approval required for workflows from first-time outside contributors (this i
 | Stage | Status |
 | --- | --- |
 | Build | Verified locally and in CI for the proposed result |
-| Test | Verified: 73 backend + 39 app tests, locally and in CI |
+| Test | Verified: 79 backend + 39 app tests, locally (PostgreSQL 18.6 and 16) and in CI |
 | Secure | Verified: no secrets in result or history. Pending: `main` protection, environment rules |
 | Deploy | Not started. Blocked until steps 1–7 are done and a staging server exists |
 | Monitor | Not started |

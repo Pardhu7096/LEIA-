@@ -35,7 +35,7 @@ Each criterion: 0 = missing or broken, 1 = present but incomplete or only locall
 | --- | --- | --- | --- | --- |
 | 1 | Deployable code and delivery workflow on the default branch | 0 | 0 | `main` = 1 commit; workflow not registered (C1) |
 | 2 | Tests gate every delivery | 2 | 2 | `verify` job precedes `deploy`; CI green on `e99ffc3`; suite passes locally |
-| 3 | Database can be built and migrated from the repository | 0 | 1 | `migrate_crm.py` failed on an empty database; baseline added, needs comparison with the original schema (C2) |
+| 3 | Database can be built and migrated from the repository | 0 | 1 | `migrate_crm.py` failed on an empty database; baseline added and reconciled with the reported development-schema differences, tested on PostgreSQL 18.6 and 16; one read-only comparison against the real development database outstanding (C2) |
 | 4 | Settings and secrets handling | 1 | 2 | No secrets in any branch history; documented `.env` was incomplete; now template + preflight (H5) |
 | 5 | Failed deployments detected, rolled back, never reported as success | 1 | 2 | Two script defects reproduced and fixed; readiness probe; 16 script tests (H1–H3) |
 | 6 | API security: sign-in, roles, uploads, request limits | 2 | 2 | Code review plus 36-step local smoke test as the least-privilege database role |
@@ -54,7 +54,7 @@ Status: **Fixed** = changed on this branch and tested locally · **Open** = need
 | ID | Finding | Files | Status |
 | --- | --- | --- | --- |
 | C1 | Nothing after the initial commit is on `main`. PRs #1–#5 were all merged into `codex/customer-quality-checks`. The delivery workflow therefore cannot be dispatched, and production deliveries are restricted to `main`, which does not contain the product. | repository branches; `.github/workflows/leia-ec2-delivery.yml` | Open |
-| C2 | An empty database cannot be built. No migration creates `users`, `auth_sessions`, `conversations` or `chat_messages` (made by hand on the development machine); `migrate_crm.py` stops at `001` with `relation "public.users" does not exist`. The tests hide this by creating their own cut-down copies of those tables. | `backend/migrations/`, `backend/migrate_crm.py`, `backend/tests/test_crm.py` | Fixed — see caveat in section 7 |
+| C2 | An empty database cannot be built. No migration creates `users`, `auth_sessions`, `conversations` or `chat_messages` (made by hand on the development machine); `migrate_crm.py` stops at `001` with `relation "public.users" does not exist`. The tests hide this by creating their own cut-down copies of those tables. | `backend/migrations/`, `backend/migrate_crm.py`, `backend/tests/test_crm.py` | Fixed — reconciled 13 Nov; final read-only check in section 7 |
 | C3 | Both apps call `http://localhost:8000` unconditionally. Any installed or hosted build would talk to the user's own device, over plain HTTP. | `frontend/src/context/AuthContext.tsx:11`, `agent-app/App.tsx:18-23` | Fixed |
 
 ### High
@@ -132,6 +132,9 @@ Status: **Fixed** = changed on this branch and tested locally · **Open** = need
 | `frontend/src/lib/apiUrl.ts`, `agent-app/src/lib/apiUrl.ts` and their callers — API address from `EXPO_PUBLIC_API_URL`; release builds require HTTPS | C3 |
 | `backend/.env.example`, `deploy/ec2/*.example`, `docs/EC2_RUNBOOK.md`, `docs/EC2_DELIVERY.md` | H5, H7, M2–M8 |
 | `backend/tests/test_crm.py` — one line (`CREATE TABLE IF NOT EXISTS`) so it coexists with the baseline | C2 |
+| `000_core_baseline.sql` reconciled with the development schema: `email_lowercase` and `session_expiry_valid` CHECK constraints; indexes `auth_sessions_user_id_idx`, `chat_messages_conversation_idx`, `conversations_user_updated_idx`; `conversations.title` `TEXT`; no default on `conversations.id` | C2 |
+| `backend/schema_report.py` — read-only schema description and `--compare` against `backend/tests/expected_schema.json` | C2 |
+| `backend/tests/test_core_schema.py`, `tests/expected_schema.json`, `tests/fixtures/development_core_tables.sql` — schema, constraint, index and adoption regressions | C2 |
 
 Not changed: application features, the database driver, dependency versions, the deployment model.
 
@@ -240,10 +243,12 @@ protection on `main` requiring the three "CRM checks" jobs.
 ## 7. Remaining production blockers
 
 1. Get the product onto `main` through a reviewed pull request, then protect `main` (C1, H6).
-2. Compare `000_core_baseline.sql` with the real development schema
-   (`pg_dump --schema-only`) and reconcile any difference before the first server database is
-   built. The baseline was derived from what the code reads and writes; the code runs against it,
-   but the original tables may carry constraints or indexes it does not know about (C2).
+2. Run the read-only comparison against the real development database and confirm
+   "Schema matches." (`docs/MAIN_INTEGRATION_PLAN.md`, step 1). The six reported differences are
+   reconciled, but the exact expressions of `email_lowercase` (`email = lower(email)`) and
+   `session_expiry_valid` (`expires_at > created_at`), the type and foreign key (none) of the
+   existing `chat_messages.property_id`, the CRM tables and table privileges were reconstructed,
+   not read from that database (C2).
 3. Provision staging, deliver to it, run the smoke test from outside AWS over HTTPS (section 5).
 4. Backups with a rehearsed restore, uptime monitoring and alerts in place (H7).
 5. Decide the SSH approach (M2) and the staging/production database separation (M3).
@@ -261,3 +266,33 @@ protection on `main` requiring the three "CRM checks" jobs.
 | **Deploy** | Deploy script control flow, rollback and retry, locally | Workflow on default branch; server provisioning; secrets | Any EC2 deployment, staging or production |
 | **Monitor** | Readiness endpoint distinguishes "process up" from "can serve" | Uptime check, alarms, log retention, backups | All of it on a real server |
 | **Document** | Runbook, settings template, service/Nginx/sudoers examples, this audit | Update after the first staging deployment | — |
+
+## 9. Update 13 November 2026 — baseline reconciled with the development schema
+
+The owner compared `000_core_baseline.sql` with the development database (PostgreSQL 18.6) and
+reported six differences. All six are reconciled in `000_core_baseline.sql`:
+
+| # | Development schema | Baseline before | Now |
+| --- | --- | --- | --- |
+| 1 | `users` CHECK `email_lowercase` | missing | `CHECK (email = lower(email))` |
+| 2 | `auth_sessions` CHECK `session_expiry_valid` | missing | `CHECK (expires_at > created_at)` |
+| 3 | indexes `auth_sessions_user_id_idx (user_id)`, `chat_messages_conversation_idx (conversation_id, id)`, `conversations_user_updated_idx (user_id, updated_at DESC)` | missing | created `IF NOT EXISTS`, same names |
+| 4 | `conversations.title TEXT` | `VARCHAR(200)` | `TEXT` |
+| 5 | `conversations.id` no default | `gen_random_uuid()` | no default (the API always supplies `uuid4()`) |
+| 6 | `chat_messages.property_id` already present | added by `005` | unchanged: `005` uses `ADD COLUMN IF NOT EXISTS`, so both paths end with `property_id UUID NULL`; the difference is in history only |
+
+Compatibility: every statement in `000` is `IF NOT EXISTS`, so on the development database it
+only records itself as applied; a test builds a development-shaped database with `001`–`007`
+already applied, runs the migrations and checks that the schema, the rows and the tables' storage
+files are unchanged. The application already satisfies the new constraints (it lower-cases email
+before every insert and lookup; sessions expire 7 days after creation) and supplies every
+conversation id. Titles are at most 80 characters.
+
+Tests (sandbox, not AWS): `backend/tests` 79 passed on PostgreSQL 18.6 and on 16 (73 before + 6
+new); 65 passed, 14 skipped without a database. With the previous baseline, 4 of the 6 new tests
+fail. A fresh database built by the migrations produces the same schema description on 18.6 and 16.
+Apps unchanged and re-verified: agent app typecheck, lint, 18 + 8 tests; customer app typecheck,
+lint, 13 tests.
+
+Not verified here: the comparison against the real development database (it was not accessed,
+by instruction) and table privileges, which `schema_report.py` does not compare.

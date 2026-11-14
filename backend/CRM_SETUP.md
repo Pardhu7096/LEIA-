@@ -129,3 +129,16 @@ an address quota. Keep JWT_SECRET stable and private across workers.
 
 These are per-address and per-user controls. Provider billing budgets and alerts
 are still required for an overall spending ceiling.
+
+## Schema snapshot
+
+`tests/expected_schema.json` is the schema the migrations build, checked by
+`tests/test_core_schema.py`. When you add a migration, regenerate it from a scratch
+database built only by `migrate_crm.py` and commit it with the migration:
+
+```bash
+python schema_report.py > tests/expected_schema.json
+```
+
+`python schema_report.py --compare tests/expected_schema.json` checks any database
+against it without changing anything (read-only session).
