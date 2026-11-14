@@ -58,6 +58,8 @@ def test_complete_deployed_configuration_passes():
         ({"LEIA_ALLOWED_ORIGINS": "https://app.example.test/login"}, "LEIA_ALLOWED_ORIGINS"),
         ({"DB_PASSWORD": "CHANGE_ME_database_password"}, "DB_PASSWORD"),
         ({"JWT_SECRET": "CHANGE_ME_" + "x" * 40}, "JWT_SECRET"),
+        ({"DB_HOST": "db.internal.example"}, "DB_SSLMODE"),
+        ({"DB_HOST": "10.0.1.5", "DB_SSLMODE": "prefer"}, "DB_SSLMODE"),
     ],
 )
 def test_unsafe_deployed_configuration_is_rejected(changes, expected):
@@ -269,3 +271,14 @@ def test_empty_database_is_built_by_migrations_and_serves_the_api(fresh_database
         assert pending.json() == {"detail": "LEIA backend is not ready."}
         assert preflight.database_problems() == [
             "Pending migrations (007_room_panoramas.sql): run migrate_crm.py."]
+
+
+@pytest.mark.parametrize("host,sslmode", [
+    ("127.0.0.1", None), ("localhost", None), ("::1", None), ("/var/run/postgresql", None),
+    ("db.internal.example", "require"), ("10.0.1.5", "verify-full"), ("db.example", "VERIFY-CA"),
+])
+def test_local_or_encrypted_database_connections_pass(host, sslmode):
+    settings = {**VALID, "DB_HOST": host}
+    if sslmode:
+        settings["DB_SSLMODE"] = sslmode
+    assert preflight.environment_problems(settings, deployed=True) == []

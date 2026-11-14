@@ -28,6 +28,7 @@ REQUIRED_SETTINGS = ("GROQ_API_KEY", "DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWO
 SECRET_SETTINGS = ("JWT_SECRET", "GROQ_API_KEY", "DB_PASSWORD")
 PLACEHOLDER_PREFIX = "CHANGE_ME"
 LOCAL_HOSTS = {"localhost", "127.0.0.1"}
+ENCRYPTED_SSLMODES = {"require", "verify-ca", "verify-full"}
 DEPLOYED_ORIGIN = re.compile(r"https://([A-Za-z0-9.-]+)(?::\d+)?")
 MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 
@@ -69,6 +70,14 @@ def environment_problems(env, *, deployed: bool = False) -> list[str]:
                 "https://app.example.com (HTTPS, a real host name, no path)."
             )
             break
+    # A database on another machine must use an encrypted connection.
+    host = env.get("DB_HOST", "").strip().lower()
+    if host and host not in LOCAL_HOSTS | {"::1"} and not host.startswith("/"):
+        if env.get("DB_SSLMODE", "").strip().lower() not in ENCRYPTED_SSLMODES:
+            problems.append(
+                "DB_SSLMODE must be require, verify-ca or verify-full when DB_HOST is "
+                "not this server."
+            )
     return problems
 
 
