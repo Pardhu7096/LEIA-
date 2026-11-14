@@ -95,10 +95,14 @@ function Get-Statements($Lines) {
     return @($Lines | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match '^(GRANT|INSERT|CREATE|REVOKE|ALTER|DELETE|UPDATE) .*;$' })
 }
 
-$failed = $false
+# Phase decides what a stop means: "checks" (nothing written), "apply" (the commit
+# outcome is unknown until confirmed), "verify" (committed; verification incomplete).
+$Phase = "checks"
 $completed = $false
-$committed = $false
 $secure = $null
+$Inspect = "& `"$Python`" `"$Tool`" --owner $OwnerRole status"
+# True when started as its own process (powershell -File ...), as documented above.
+$OwnProcess = ([Environment]::GetCommandLineArgs() -join " ").Contains($PSCommandPath)
 try {
     if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) { throw "$BackupDir does not exist." }
     Write-StepLog "LEIA step 3 (record $Record) - $(Get-Date -Format o) - PowerShell $($PSVersionTable.PSVersion)"
@@ -177,13 +181,14 @@ try {
     # ---- 6. Execute (the only step that writes) ----------------------------------------
     Write-StepLog "== EXECUTE: one transaction"
     Remove-Item Env:PGOPTIONS -ErrorAction SilentlyContinue
+    $Phase = "apply"
     try {
         $run = Invoke-Native -Label "adopt --apply" -Program $Python -Arguments @(
             $Tool, "adopt", "--through", $Through, "--expect-record", $Record, "--apply")
     } finally { $env:PGOPTIONS = $ReadOnlyOption }
     $executed = Get-Statements $run
-    if (-not ($run -match '^Committed\. Recorded: ')) { throw "No commit confirmation; check the log." }
-    $committed = $true
+    if (-not ($run -match '^Committed\. Recorded: ')) { throw "The apply step ended without a commit confirmation." }
+    $Phase = "verify"
     if (($executed -join "`n") -ne ($Reviewed -join "`n")) { throw "Executed statements differ from the reviewed ones; see log." }
     Write-StepLog "    executed exactly the 2 reviewed statements and committed"
 
@@ -214,16 +219,34 @@ try {
     Write-StepLog "RESULT: OK - 000 recorded and history readable by leia_app; 000-006 recorded once each; 007 pending; no other change."
     $completed = $true
 } catch {
-    $failed = $true
-    if ($committed) {
-        Write-StepLog "RESULT: STOPPED AFTER COMMIT - $($_.Exception.Message) The two statements were committed; do not rerun. Send the log."
-    } else {
-        Write-StepLog "RESULT: STOPPED - $($_.Exception.Message)"
-    }
+    $Reason = $_.Exception.Message
 } finally {
-    if (-not $completed -and -not $failed) { Write-StepLog "RESULT: STOPPED - interrupted (for example Ctrl+C)." }
+    if (-not $completed) {
+        $Interrupted = -not (Test-Path Variable:Reason)
+        if ($Interrupted) { $Reason = "interrupted (for example Ctrl+C)." }
+        switch ($Phase) {
+            "checks" {
+                Write-StepLog "RESULT: STOPPED BEFORE ANY CHANGE - $Reason"
+            }
+            "apply" {
+                Write-StepLog "RESULT: STOPPED - COMMIT OUTCOME UNCERTAIN - $Reason"
+                Write-StepLog "    The two statements may or may not have been committed. Do NOT rerun step 3."
+                Write-StepLog "    Inspect the database first, read-only: $Inspect"
+                Write-StepLog "    Then send this log to Claude."
+            }
+            default {
+                Write-StepLog "RESULT: STOPPED AFTER COMMIT, VERIFICATION INCOMPLETE - $Reason"
+                Write-StepLog "    The two statements were committed. Do NOT rerun step 3."
+                Write-StepLog "    Inspect read-only: $Inspect ; then send this log to Claude."
+            }
+        }
+    }
     foreach ($name in $SecretVariables) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
     if ($secure) { $secure.Dispose() }
     Write-Host "`nLog: $Log  (tell Claude it is done)"
+    # Only a fully completed, verified run exits 0. On Ctrl+C PowerShell skips the
+    # `exit` below, so an interrupted run in its own process sets the host's exit
+    # code instead (never in a shared window, which this would close).
+    if (-not $completed -and $Interrupted -and $OwnProcess) { $host.SetShouldExit(1) }
 }
-if ($failed) { exit 1 } else { exit 0 }
+if ($completed) { exit 0 } else { exit 1 }
