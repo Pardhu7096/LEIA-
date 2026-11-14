@@ -57,6 +57,53 @@ status before and after and requires them to be identical.
 powershell -ExecutionPolicy Bypass -File D:\LEIA-backups\leia-step2-dry-run.ps1
 ```
 
+## Step 4: prepare 007 (live database read-only) — `leia-step4-prepare-007.ps1`
+
+`007_room_panoramas.sql` (SHA-256 `B29AF32A…6D2C9A`) replaces `property_media_kind_check`
+with a wider rule (adds kind `panorama_room`: a named room of 1–60 characters, never
+the gallery cover) and adds the unique index `property_media_room_panorama_unique`
+(one panorama per room and listing, ignoring letter case). Every row the old rule
+allows is allowed by the new one, and no `panorama_room` row can exist before 007, so
+neither statement can fail on existing data. The single (legacy) panorama, cover and
+gallery rules are unchanged. It briefly locks `property_media` (stop the backend).
+
+The script, with every connection to `leia` read-only: checks the worktree and the
+007 file hash; requires `leia` to equal the step-3 result and 007 to be the only
+pending migration with no incompatible rows; runs `migrate_crm.py --dry-run --expect
+007_room_panoramas.sql`; takes a fresh backup; restores it into
+`leia_step4_check_<time>` (compared Identical); on that copy only, applies 007 with
+the runner and checks `verify-migration`, runs the rollback script and checks the copy
+is Identical to before, and applies 007 again; finally requires `leia` to be Identical
+before and after. `leia` is never written.
+
+```powershell
+git -C D:\LEIA-schema-audit pull --ff-only
+powershell -ExecutionPolicy Bypass -File D:\LEIA-schema-audit\scripts\windows\leia-step4-prepare-007.ps1
+```
+
+## Step 5: apply 007 (needs approval) — `leia-step5-apply-007.ps1 -BackupStamp <step-4 stamp>`
+
+Pre-checks (read-only): worktree and 007 hash; the step-4 backup hash; `leia` still
+equals the state the step-4 backup was taken from; dry run shows only 007. Apply: the
+project runner, one transaction, `--expect 007_room_panoramas.sql`. After:
+`verify-migration` (only 007's two schema changes; every table's rows and content
+checksums unchanged apart from one history row), history 000–007 once each, nothing
+pending, and the app's own login sees the same. A stop during the apply is reported as
+COMMIT OUTCOME UNCERTAIN (do not rerun; inspect first); only a verified run exits 0.
+
+## Rollback of 007
+
+`backend/rollback/007_room_panoramas.down.sql` (outside the migration chain), as the
+owner with the backend stopped, one transaction:
+`psql -v ON_ERROR_STOP=1 -h <host> -p <port> -U postgres -d leia -f <file>`.
+It refuses unless 007 is recorded and no room panoramas exist (deleting customer
+media is a separate decision), then restores 004's rule exactly, drops the room index
+and removes the 007 history row; tests show the result is Identical to the pre-007
+state and 007 can be applied again. With room panoramas present, or if anything else
+went wrong: restore the step-4 backup into a new database and point `.env` at it.
+Before 007 (or after a rollback) the room-panorama endpoints fail safely (HTTP 500,
+nothing written); everything else works.
+
 ## M12: least privilege for the API role (plan; needs approval to apply)
 
 `backend/api_privileges.py` holds `REQUIRED`, the table privileges the API needs.

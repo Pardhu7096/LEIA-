@@ -363,3 +363,20 @@ Windows PowerShell 5.1.22621, PostgreSQL 18.6, worktree fast-forwarded to `14c45
   least privilege allows there. Not changed (by instruction). Servers must use a separate
   owner role (`leia_owner_ENV`, runbook §8); for development, transfer ownership to
   `postgres` in a later, approved step.
+
+### 10.2 Step 3 and the preparation of 007 (14 Nov, 17:44)
+
+- Step 3 on the development database (`step3-20261114_174420.log`): exactly the two
+  approved statements committed; `verify-adoption` VERIFIED (re-checked independently);
+  history 000–006 once each; `leia_app` can read the history; only 007 pending.
+- 007 prepared: dry run, expectation guard, `verify-migration`, guarded rollback script,
+  step-4 rehearsal script (live read-only) and step-5 apply script (approval required).
+  11 new tests on a tracked 000–006 database with listings made through the API: upgrade
+  changes only 007's schema; several room panoramas beside the single panorama; database
+  rules; rollback restores the 006 state exactly; dry run read-only. Removing 007's
+  unique index fails three of them. Backend 127 tests pass on PostgreSQL 18.6 and 16.
+- **New finding (L10, low):** re-uploading a room panorama with different letter case
+  (`bedroom 1` for `Bedroom 1`) replaces it, as intended, but renames the room to the
+  latest spelling, and room lists sort case-sensitively (`Bedroom 2` before `bedroom 1`).
+  Cosmetic; not changed here. Fix later by keeping the first spelling or sorting by
+  `lower(room)`.
