@@ -1,0 +1,725 @@
+{
+  "auth_sessions": {
+    "columns": {
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "expires_at": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "gen_random_uuid()",
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      },
+      "refresh_token_hash": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "revoked_at": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      }
+    },
+    "constraints": {
+      "auth_sessions_pkey": "PRIMARY KEY (id)",
+      "auth_sessions_refresh_token_hash_key": "UNIQUE (refresh_token_hash)",
+      "auth_sessions_user_id_fkey": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+      "session_expiry_valid": "CHECK ((expires_at > created_at))"
+    },
+    "indexes": {
+      "auth_sessions_pkey": "CREATE UNIQUE INDEX auth_sessions_pkey ON public.auth_sessions USING btree (id)",
+      "auth_sessions_refresh_token_hash_key": "CREATE UNIQUE INDEX auth_sessions_refresh_token_hash_key ON public.auth_sessions USING btree (refresh_token_hash)",
+      "auth_sessions_user_id_idx": "CREATE INDEX auth_sessions_user_id_idx ON public.auth_sessions USING btree (user_id)"
+    }
+  },
+  "chat_messages": {
+    "columns": {
+      "content": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "conversation_id": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": null,
+        "identity": "always",
+        "nullable": false,
+        "type": "bigint"
+      },
+      "properties": {
+        "default": "'[]'::jsonb",
+        "identity": null,
+        "nullable": false,
+        "type": "jsonb"
+      },
+      "property_id": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "uuid"
+      },
+      "role": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      }
+    },
+    "constraints": {
+      "chat_messages_conversation_id_fkey": "FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE",
+      "chat_messages_pkey": "PRIMARY KEY (id)",
+      "chat_messages_role_check": "CHECK ((role = ANY (ARRAY['user'::text, 'assistant'::text])))"
+    },
+    "indexes": {
+      "chat_messages_conversation_idx": "CREATE INDEX chat_messages_conversation_idx ON public.chat_messages USING btree (conversation_id, id)",
+      "chat_messages_pkey": "CREATE UNIQUE INDEX chat_messages_pkey ON public.chat_messages USING btree (id)"
+    }
+  },
+  "conversations": {
+    "columns": {
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "filters": {
+        "default": "'{}'::jsonb",
+        "identity": null,
+        "nullable": false,
+        "type": "jsonb"
+      },
+      "id": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      },
+      "title": {
+        "default": "'New property search'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "updated_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      }
+    },
+    "constraints": {
+      "conversations_pkey": "PRIMARY KEY (id)",
+      "conversations_user_id_fkey": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    "indexes": {
+      "conversations_pkey": "CREATE UNIQUE INDEX conversations_pkey ON public.conversations USING btree (id)",
+      "conversations_user_updated_idx": "CREATE INDEX conversations_user_updated_idx ON public.conversations USING btree (user_id, updated_at DESC)"
+    }
+  },
+  "crm_schema_migrations": {
+    "columns": {
+      "applied_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "name": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      }
+    },
+    "constraints": {
+      "crm_schema_migrations_pkey": "PRIMARY KEY (name)"
+    },
+    "indexes": {
+      "crm_schema_migrations_pkey": "CREATE UNIQUE INDEX crm_schema_migrations_pkey ON public.crm_schema_migrations USING btree (name)"
+    }
+  },
+  "properties": {
+    "columns": {
+      "address": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "text"
+      },
+      "area_sqft": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "numeric(12,2)"
+      },
+      "availability": {
+        "default": "'available'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "bathrooms": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "smallint"
+      },
+      "bedrooms": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "smallint"
+      },
+      "bike_parking_spaces": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "bigint"
+      },
+      "car_parking_spaces": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "bigint"
+      },
+      "city": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "character varying(100)"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "created_by": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      },
+      "description": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "text"
+      },
+      "electricity_checked_on": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "date"
+      },
+      "electricity_connection": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "electricity_meter": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "electricity_notes": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "text"
+      },
+      "electricity_phase": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "electricity_source": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "id": {
+        "default": "gen_random_uuid()",
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      },
+      "latitude": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "double precision"
+      },
+      "locality": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "character varying(150)"
+      },
+      "longitude": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "double precision"
+      },
+      "maintenance_monthly": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "bigint"
+      },
+      "parking_allocation": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "parking_checked_on": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "date"
+      },
+      "parking_extra_cost": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "bigint"
+      },
+      "parking_included": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "parking_notes": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "text"
+      },
+      "parking_source": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "parking_type": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "pincode": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "character varying(6)"
+      },
+      "power_backup": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "price": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "bigint"
+      },
+      "property_type": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "reviewed_at": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "timestamp with time zone"
+      },
+      "reviewed_by": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "uuid"
+      },
+      "status": {
+        "default": "'draft'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "submitted_at": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "timestamp with time zone"
+      },
+      "title": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "character varying(200)"
+      },
+      "updated_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "version": {
+        "default": "1",
+        "identity": null,
+        "nullable": false,
+        "type": "integer"
+      },
+      "water_borewell": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "water_checked_on": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "date"
+      },
+      "water_connection": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "water_monthly_charge": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "bigint"
+      },
+      "water_municipal": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "water_notes": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "text"
+      },
+      "water_source": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "water_storage_litres": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "bigint"
+      },
+      "water_supply_frequency": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "water_tanker": {
+        "default": "'unknown'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      }
+    },
+    "constraints": {
+      "properties_area_sqft_check": "CHECK ((area_sqft > (0)::numeric))",
+      "properties_availability_check": "CHECK ((availability = ANY (ARRAY['available'::text, 'sold'::text, 'withdrawn'::text])))",
+      "properties_bathrooms_check": "CHECK (((bathrooms >= 0) AND (bathrooms <= 20)))",
+      "properties_bedrooms_check": "CHECK (((bedrooms >= 0) AND (bedrooms <= 20)))",
+      "properties_bike_parking_spaces_check": "CHECK (((bike_parking_spaces >= 0) AND (bike_parking_spaces <= 1000)))",
+      "properties_car_parking_spaces_check": "CHECK (((car_parking_spaces >= 0) AND (car_parking_spaces <= 1000)))",
+      "properties_created_by_fkey": "FOREIGN KEY (created_by) REFERENCES users(id)",
+      "properties_electricity_connection_check": "CHECK ((electricity_connection = ANY (ARRAY['unknown'::text, 'yes'::text, 'no'::text, 'not_applicable'::text])))",
+      "properties_electricity_meter_check": "CHECK ((electricity_meter = ANY (ARRAY['unknown'::text, 'separate'::text, 'shared'::text, 'not_applicable'::text])))",
+      "properties_electricity_notes_check": "CHECK ((length(electricity_notes) <= 2000))",
+      "properties_electricity_phase_check": "CHECK ((electricity_phase = ANY (ARRAY['unknown'::text, 'single'::text, 'three'::text, 'not_applicable'::text])))",
+      "properties_electricity_source_check": "CHECK ((electricity_source = ANY (ARRAY['unknown'::text, 'observed'::text, 'owner_reported'::text, 'document_checked'::text])))",
+      "properties_latitude_check": "CHECK (((latitude >= ('-90'::integer)::double precision) AND (latitude <= (90)::double precision)))",
+      "properties_longitude_check": "CHECK (((longitude >= ('-180'::integer)::double precision) AND (longitude <= (180)::double precision)))",
+      "properties_maintenance_monthly_check": "CHECK (((maintenance_monthly >= 0) AND (maintenance_monthly <= '9007199254740991'::bigint)))",
+      "properties_parking_allocation_check": "CHECK ((parking_allocation = ANY (ARRAY['unknown'::text, 'reserved'::text, 'shared'::text, 'not_applicable'::text])))",
+      "properties_parking_extra_cost_check": "CHECK (((parking_extra_cost >= 0) AND (parking_extra_cost <= '9007199254740991'::bigint)))",
+      "properties_parking_included_check": "CHECK ((parking_included = ANY (ARRAY['unknown'::text, 'yes'::text, 'no'::text, 'not_applicable'::text])))",
+      "properties_parking_notes_check": "CHECK ((length(parking_notes) <= 2000))",
+      "properties_parking_source_check": "CHECK ((parking_source = ANY (ARRAY['unknown'::text, 'observed'::text, 'owner_reported'::text, 'document_checked'::text])))",
+      "properties_parking_type_check": "CHECK ((parking_type = ANY (ARRAY['unknown'::text, 'none'::text, 'open'::text, 'covered'::text, 'both'::text, 'not_applicable'::text])))",
+      "properties_pincode_check": "CHECK (((pincode)::text ~ '^[0-9]{6}$'::text))",
+      "properties_pkey": "PRIMARY KEY (id)",
+      "properties_power_backup_check": "CHECK ((power_backup = ANY (ARRAY['unknown'::text, 'none'::text, 'common_areas'::text, 'partial_home'::text, 'full_home'::text, 'not_applicable'::text])))",
+      "properties_price_check": "CHECK ((price > 0))",
+      "properties_property_type_check": "CHECK ((property_type = ANY (ARRAY['flat'::text, 'independent_house'::text, 'plot'::text])))",
+      "properties_reviewed_by_fkey": "FOREIGN KEY (reviewed_by) REFERENCES users(id)",
+      "properties_status_check": "CHECK ((status = ANY (ARRAY['draft'::text, 'submitted'::text, 'approved'::text, 'rejected'::text, 'archived'::text])))",
+      "properties_version_check": "CHECK ((version >= 1))",
+      "properties_water_borewell_check": "CHECK ((water_borewell = ANY (ARRAY['unknown'::text, 'yes'::text, 'no'::text, 'not_applicable'::text])))",
+      "properties_water_connection_check": "CHECK ((water_connection = ANY (ARRAY['unknown'::text, 'separate'::text, 'shared'::text, 'not_applicable'::text])))",
+      "properties_water_monthly_charge_check": "CHECK (((water_monthly_charge >= 0) AND (water_monthly_charge <= '9007199254740991'::bigint)))",
+      "properties_water_municipal_check": "CHECK ((water_municipal = ANY (ARRAY['unknown'::text, 'yes'::text, 'no'::text, 'not_applicable'::text])))",
+      "properties_water_notes_check": "CHECK ((length(water_notes) <= 2000))",
+      "properties_water_source_check": "CHECK ((water_source = ANY (ARRAY['unknown'::text, 'observed'::text, 'owner_reported'::text, 'document_checked'::text])))",
+      "properties_water_storage_litres_check": "CHECK (((water_storage_litres >= 0) AND (water_storage_litres <= 2147483647)))",
+      "properties_water_supply_frequency_check": "CHECK ((water_supply_frequency = ANY (ARRAY['unknown'::text, 'daily'::text, 'alternate_days'::text, 'weekly'::text, 'irregular'::text, 'not_applicable'::text])))",
+      "properties_water_tanker_check": "CHECK ((water_tanker = ANY (ARRAY['unknown'::text, 'yes'::text, 'no'::text, 'not_applicable'::text])))",
+      "property_coordinates_together": "CHECK ((((latitude IS NULL) AND (longitude IS NULL)) OR ((latitude IS NOT NULL) AND (longitude IS NOT NULL))))"
+    },
+    "indexes": {
+      "properties_created_by_idx": "CREATE INDEX properties_created_by_idx ON public.properties USING btree (created_by)",
+      "properties_pkey": "CREATE UNIQUE INDEX properties_pkey ON public.properties USING btree (id)",
+      "properties_status_availability_idx": "CREATE INDEX properties_status_availability_idx ON public.properties USING btree (status, availability)"
+    }
+  },
+  "property_media": {
+    "columns": {
+      "content": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "bytea"
+      },
+      "id": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      },
+      "is_gallery_cover": {
+        "default": "false",
+        "identity": null,
+        "nullable": false,
+        "type": "boolean"
+      },
+      "kind": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "property_id": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      },
+      "room": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "text"
+      },
+      "uploaded_at": {
+        "default": "clock_timestamp()",
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      }
+    },
+    "constraints": {
+      "property_media_content_check": "CHECK (((octet_length(content) >= 1) AND (octet_length(content) <= 12582912)))",
+      "property_media_kind_check": "CHECK ((((kind = 'photo'::text) AND (room IS NOT NULL) AND ((char_length(btrim(room)) >= 1) AND (char_length(btrim(room)) <= 60))) OR ((kind = ANY (ARRAY['cover'::text, 'panorama'::text])) AND (room IS NULL) AND (NOT is_gallery_cover))))",
+      "property_media_pkey": "PRIMARY KEY (id)",
+      "property_media_property_id_fkey": "FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE"
+    },
+    "indexes": {
+      "property_media_gallery": "CREATE INDEX property_media_gallery ON public.property_media USING btree (property_id, uploaded_at, id) WHERE (kind = 'photo'::text)",
+      "property_media_gallery_cover": "CREATE UNIQUE INDEX property_media_gallery_cover ON public.property_media USING btree (property_id) WHERE is_gallery_cover",
+      "property_media_pkey": "CREATE UNIQUE INDEX property_media_pkey ON public.property_media USING btree (id)",
+      "property_media_single_slot": "CREATE UNIQUE INDEX property_media_single_slot ON public.property_media USING btree (property_id, kind) WHERE (kind = ANY (ARRAY['cover'::text, 'panorama'::text]))"
+    }
+  },
+  "property_private_details": {
+    "columns": {
+      "agent_notes": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "text"
+      },
+      "consent_recorded_at": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "timestamp with time zone"
+      },
+      "listing_consent": {
+        "default": "false",
+        "identity": null,
+        "nullable": false,
+        "type": "boolean"
+      },
+      "owner_email": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "character varying(254)"
+      },
+      "owner_name": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "character varying(150)"
+      },
+      "owner_phone": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "character varying(30)"
+      },
+      "property_id": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      },
+      "review_notes": {
+        "default": null,
+        "identity": null,
+        "nullable": true,
+        "type": "text"
+      }
+    },
+    "constraints": {
+      "property_private_details_pkey": "PRIMARY KEY (property_id)",
+      "property_private_details_property_id_fkey": "FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE"
+    },
+    "indexes": {
+      "property_private_details_pkey": "CREATE UNIQUE INDEX property_private_details_pkey ON public.property_private_details USING btree (property_id)"
+    }
+  },
+  "request_limits": {
+    "columns": {
+      "count": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "integer"
+      },
+      "expires_at": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "key": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      }
+    },
+    "constraints": {
+      "request_limits_count_check": "CHECK ((count > 0))",
+      "request_limits_pkey": "PRIMARY KEY (key)"
+    },
+    "indexes": {
+      "request_limits_expiry": "CREATE INDEX request_limits_expiry ON public.request_limits USING btree (expires_at)",
+      "request_limits_pkey": "CREATE UNIQUE INDEX request_limits_pkey ON public.request_limits USING btree (key)"
+    }
+  },
+  "users": {
+    "columns": {
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "identity": null,
+        "nullable": false,
+        "type": "timestamp with time zone"
+      },
+      "email": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "character varying(254)"
+      },
+      "id": {
+        "default": "gen_random_uuid()",
+        "identity": null,
+        "nullable": false,
+        "type": "uuid"
+      },
+      "name": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "character varying(100)"
+      },
+      "password_hash": {
+        "default": null,
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      },
+      "role": {
+        "default": "'customer'::text",
+        "identity": null,
+        "nullable": false,
+        "type": "text"
+      }
+    },
+    "constraints": {
+      "email_lowercase": "CHECK (((email)::text = lower((email)::text)))",
+      "users_email_key": "UNIQUE (email)",
+      "users_pkey": "PRIMARY KEY (id)",
+      "users_role_check": "CHECK ((role = ANY (ARRAY['customer'::text, 'agent'::text, 'admin'::text])))"
+    },
+    "indexes": {
+      "users_email_key": "CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)",
+      "users_pkey": "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)"
+    }
+  }
+}

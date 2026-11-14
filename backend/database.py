@@ -9,6 +9,10 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
 def get_connection():
+    # DB_SSLMODE (for example "require" or "verify-full") is needed when the
+    # database is not on the same host; unset keeps the driver default.
+    sslmode = os.getenv("DB_SSLMODE", "").strip()
+    options = {"sslmode": sslmode} if sslmode else {}
     return psycopg.connect(
         host=os.environ["DB_HOST"],
         port=int(os.environ["DB_PORT"]),
@@ -17,4 +21,5 @@ def get_connection():
         password=os.environ["DB_PASSWORD"],
         row_factory=dict_row,
         connect_timeout=5,
+        **options,
     )

@@ -17,6 +17,12 @@ def migrate():
                 name TEXT PRIMARY KEY,
                 applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             );""")
+            # Read-only access lets the API's readiness probe detect pending migrations.
+            cursor.execute("""DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'leia_app') THEN
+                    GRANT SELECT ON public.crm_schema_migrations TO leia_app;
+                END IF;
+            END $$;""")
             for path in sorted((Path(__file__).parent / "migrations").glob("*.sql")):
                 cursor.execute(
                     "SELECT 1 FROM public.crm_schema_migrations WHERE name = %s;",
