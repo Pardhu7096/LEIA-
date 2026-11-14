@@ -34,6 +34,8 @@ powershell -ExecutionPolicy Bypass -File D:\LEIA-backups\leia-step1-backup-and-c
 - Verifies the backup by restoring it and comparing the `status --json` reports of the
   live and restored databases with `compare-status`: schema, owners, migration history,
   row counts and per-table content checksums.
+- The scratch database is created with the live database's owner (a dump without
+  `-C` does not carry it), so ownership is compared like everything else.
 - The scratch database is kept, and the log prints the `dropdb` command; add
   `-DropScratchAfterVerify` to drop it automatically after a successful comparison.
 - Every command's exit code is checked; the first failure stops the run with

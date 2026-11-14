@@ -279,3 +279,102 @@ def test_status_json_for_a_role_that_cannot_read_history_exits_2(scratch, tmp_pa
         with scratch(autocommit=True) as connection:
             connection.execute(f"DROP OWNED BY {role}")
             connection.execute(f"DROP ROLE {role}")
+
+
+def _report_pair(tmp_path, **restored_changes):
+    """Two complete status reports shaped like the 14 Nov development run: the
+    database is owned by the API role, the restored copy by postgres."""
+    live = {"connected_as": "postgres", "database": "leia", "database_owner": "leia_app",
+            "server_version": "18.6",
+            "table_owners": {"users": "leia_app", "properties": "postgres"},
+            "history": {"exists": True, "readable": True, "leia_app_can_read": False,
+                        "recorded": [p.name for p in MIGRATIONS[1:7]]},
+            "pending": ["000_core_baseline.sql", "007_room_panoramas.sql"],
+            "recorded_not_shipped": [], "matches": {THROUGH: []},
+            "property_media": {"total": 5, "invalid_for_007": 0, "duplicate_room_panoramas": 0},
+            "row_counts": {"users": 3, "properties": 4},
+            "checksums": {"users": "a" * 32, "properties": "b" * 32},
+            "schema": {"users": EXPECTED_006["users"], "properties": EXPECTED_006["properties"]}}
+    restored = json.loads(json.dumps(live))
+    restored.update(database="leia_restore_check_20261114_141755", database_owner="postgres")
+    for key, value in restored_changes.items():
+        restored[key] = value
+    first, second = tmp_path / "live.json", tmp_path / "restored.json"
+    first.write_text(json.dumps(live), encoding="utf-8")
+    second.write_text("﻿" + json.dumps(restored), encoding="utf-8")
+    return str(first), str(second)
+
+
+def test_database_owner_difference_fails_unless_declared_exactly(tmp_path, capsys):
+    first, second = _report_pair(tmp_path)
+    assert reconcile_migrations.main(["compare-status", first, second]) == 1
+    assert "database_owner: 'leia_app' != 'postgres'" in capsys.readouterr().out
+
+    option = "--allow-database-owner-difference"
+    assert reconcile_migrations.main(["compare-status", first, second, option, "leia_app:postgres"]) == 0
+    out = capsys.readouterr().out
+    assert "database_owner: leia_app -> postgres accepted as declared" in out
+    assert out.strip().endswith("Identical.")
+
+    for wrong in ("postgres:leia_app", "leia_app:other", "x:postgres"):
+        assert reconcile_migrations.main(["compare-status", first, second, option, wrong]) == 1
+        assert "database_owner: expected" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        reconcile_migrations.main(["compare-status", first, second, option, "leia_app"])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("table_owners", {"users": "postgres", "properties": "postgres"}),
+    ("checksums", {"users": "c" * 32, "properties": "b" * 32}),
+    ("row_counts", {"users": 2, "properties": 4}),
+    ("history", {"exists": True, "readable": True, "leia_app_can_read": False, "recorded": []}),
+])
+def test_declared_owner_difference_does_not_hide_anything_else(tmp_path, capsys, field, value):
+    first, second = _report_pair(tmp_path, **{field: value})
+    assert reconcile_migrations.main(["compare-status", first, second,
+                                      "--allow-database-owner-difference", "leia_app:postgres"]) == 1
+    assert f"{field}:" in capsys.readouterr().out
+
+
+def test_restore_created_with_the_live_owner_compares_identical(scratch, tmp_path, capsys, monkeypatch):
+    """The development case: database and some tables owned by the API role. A copy
+    created by postgres differs only in the database owner; a copy created with the
+    live owner (createdb --owner, as the backup script now does) is identical."""
+    role = f"app_{uuid4().hex[:12]}"
+    build_untracked_006(scratch, tracked=[p.name for p in MIGRATIONS[1:7]])
+    with scratch(autocommit=True) as connection:
+        source = connection.info.dbname
+        connection.execute(f"CREATE ROLE {role}")
+        connection.execute(f'ALTER DATABASE "{source}" OWNER TO {role}')
+        connection.execute(f"ALTER TABLE users OWNER TO {role}")
+    copies = {"by_postgres": f"{source}_c1", "with_owner": f"{source}_c2"}
+    try:
+        with scratch(autocommit=True) as connection:
+            connection.execute(f'CREATE DATABASE "{copies["by_postgres"]}" TEMPLATE "{source}"')
+            connection.execute(
+                f'CREATE DATABASE "{copies["with_owner"]}" OWNER {role} TEMPLATE "{source}"')
+        live = tmp_path / "live.json"
+        assert reconcile_migrations.main(["status", "--json", "--output", str(live)]) == 0
+        reports = {}
+        for label, name in copies.items():
+            monkeypatch.setenv("DB_NAME", name)
+            reports[label] = tmp_path / f"{label}.json"
+            assert reconcile_migrations.main(
+                ["status", "--json", "--output", str(reports[label])]) == 0
+        capsys.readouterr()
+
+        assert reconcile_migrations.main(
+            ["compare-status", str(live), str(reports["by_postgres"])]) == 1
+        out = capsys.readouterr().out
+        assert out.splitlines() == [f"database_owner: '{role}' != 'postgres'", "1 difference(s)."]
+
+        assert reconcile_migrations.main(
+            ["compare-status", str(live), str(reports["with_owner"])]) == 0
+        assert capsys.readouterr().out.strip() == "Identical."
+    finally:
+        for name in copies.values():
+            _drop(scratch, name)
+        with scratch(autocommit=True) as connection:
+            connection.execute(f'ALTER DATABASE "{source}" OWNER TO CURRENT_USER')
+            connection.execute("ALTER TABLE users OWNER TO CURRENT_USER")
+            connection.execute(f"DROP ROLE {role}")

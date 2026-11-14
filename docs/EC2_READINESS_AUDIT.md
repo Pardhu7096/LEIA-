@@ -336,3 +336,30 @@ Tests (sandbox): backend 98 passed on PostgreSQL 18.6 and on 16 (fresh database 
 Customer app: typecheck, lint, 13 tests passed. `pip-audit`: none. `npm audit --omit=dev`:
 9 / 5 moderate (L8, unchanged). Bandit: no real findings (B608 on a constant table name;
 B105 on token-type labels).
+
+### 10.1 First run on the development machine (14 Nov, 14:17)
+
+Windows PowerShell 5.1.22621, PostgreSQL 18.6, worktree fast-forwarded to `14c45ce`.
+
+- Backup `leia-20261114_141755-pre007.dump`: 3,870,550 bytes, 9 tables with data,
+  SHA256 `00AD8FF1…36EC64` (re-verified from the file afterwards).
+- Restore into `leia_restore_check_20261114_141755`: succeeded. Structured comparison:
+  schema, history, pending, snapshot matches, media checks, table owners, row counts
+  (126 rows in 9 tables) and all 9 content checksums identical. The only difference was
+  the owner of the database itself (`leia_app` live, `postgres` on the copy): `pg_dump`
+  without `-C` does not carry it and `createdb` ran as `postgres`. The script now creates
+  the copy with the live owner; `compare-status --allow-database-owner-difference
+  leia_app:postgres` verifies that run without accepting any other difference.
+- History: `001`–`006` recorded, `000` not recorded, `007` pending; the schema equals the
+  state after `006` exactly. `leia_app` cannot read the history table (as expected).
+- **pg_dump login failure explained:** no `PGPASSWORD`, `PGUSER` or `pgpass.conf`; the
+  failed attempts (13:05:14 and the previous evening) matched `pg_hba.conf` line 117
+  (`::1/128`, scram-sha-256), the same rule the app uses with `DB_HOST=localhost`. The
+  password typed at the prompt was therefore not the one in `.env`. No configuration
+  change is needed; backups are taken as `postgres`.
+- **New finding (M12, development database):** `leia_app` owns the database `leia` and
+  the tables `users`, `auth_sessions`, `conversations`, `chat_messages`. An owner can
+  alter or drop them and is not limited by grants, so the API login has more power than
+  least privilege allows there. Not changed (by instruction). Servers must use a separate
+  owner role (`leia_owner_ENV`, runbook §8); for development, transfer ownership to
+  `postgres` in a later, approved step.

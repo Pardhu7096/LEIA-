@@ -271,8 +271,13 @@ try {
     if ($Scratch -eq $DbName -or $Scratch -notmatch '^leia_restore_check_\d{8}_\d{6}$') { throw "Unsafe scratch name '$Scratch'." }
     $exists = Invoke-Sql $DbName "select count(*) from pg_database where datname = '$Scratch'" "scratch name is free"
     if ($exists[0] -ne "0") { throw "Database $Scratch already exists." }
+    # pg_dump without -C does not carry the database's own owner: create the copy with
+    # the live owner so the comparison needs no exception for it.
+    $DbOwner = "$($live.database_owner)"
+    if ($DbOwner -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { throw "Unexpected database owner name '$DbOwner'." }
     Set-ReadOnlySessions $false   # creating and filling the scratch database needs writes
-    Invoke-Native -Label "createdb $Scratch" -Program $CreateDb -Arguments ($Connection + @("--maintenance-db=postgres", $Scratch)) | Out-Null
+    Invoke-Native -Label "createdb $Scratch (owner $DbOwner)" -Program $CreateDb -Arguments (
+        $Connection + @("--maintenance-db=postgres", "--owner=$DbOwner", $Scratch)) | Out-Null
     Invoke-Native -Label "pg_restore into $Scratch" -Program $PgRestore -Arguments (
         $Connection + @("-d", $Scratch, "--exit-on-error", "--single-transaction", $Dump)) | Out-Null
     Set-ReadOnlySessions $true

@@ -4,6 +4,7 @@ database already has (objects created before migration tracking existed).
     python reconcile_migrations.py --owner postgres              # status, read-only
     python reconcile_migrations.py --owner postgres status --json --output live.json
     python reconcile_migrations.py compare-status live.json restored.json
+        [--allow-database-owner-difference leia_app:postgres]
     python reconcile_migrations.py --owner postgres adopt --through 006_request_limits.sql
     python reconcile_migrations.py --owner postgres adopt --through 006_request_limits.sql --apply
 
@@ -183,11 +184,28 @@ COMPARED_FIELDS = ("database_owner", "server_version", "table_owners", "history"
                    "checksums", "schema")
 
 
-def compare_status(first: Path, second: Path) -> int:
-    """Compare two `status --json` files field by field (the database name may differ)."""
+def compare_status(first: Path, second: Path,
+                   database_owners: tuple[str, str] | None = None) -> int:
+    """Compare two `status --json` files field by field (the database name may differ).
+
+    `database_owners` = (first_owner, second_owner) accepts exactly that difference in
+    the owner of the database itself, which pg_dump without -C does not carry. Table
+    owners and every other field are still compared."""
     a = json.loads(first.read_text(encoding="utf-8-sig"))
     b = json.loads(second.read_text(encoding="utf-8-sig"))
     problems = []
+    notes = []
+    if database_owners is not None:
+        actual = (a.get("database_owner"), b.get("database_owner"))
+        if actual == tuple(database_owners):
+            notes.append(f"database_owner: {actual[0]} -> {actual[1]} accepted as declared")
+            a = {**a, "database_owner": None}
+            b = {**b, "database_owner": None}
+        else:
+            problems.append(f"database_owner: expected {database_owners[0]!r} -> "
+                            f"{database_owners[1]!r}, found {actual[0]!r} -> {actual[1]!r}")
+            a = {**a, "database_owner": None}
+            b = {**b, "database_owner": None}
     for report, path in ((a, first), (b, second)):
         if report.get("checksums") is None or report.get("schema") is None:
             problems.append(f"{path.name}: incomplete status (run as the owner with --json)")
@@ -198,7 +216,7 @@ def compare_status(first: Path, second: Path) -> int:
                              schema_report.differences(a["schema"], b["schema"])]
         elif a.get(field) != b.get(field):
             problems.append(f"{field}: {a.get(field)!r} != {b.get(field)!r}")
-    for line in problems:
+    for line in notes + problems:
         print(line)
     print("Identical." if not problems else f"{len(problems)} difference(s).")
     return 1 if problems else 0
@@ -265,9 +283,19 @@ def main(argv=None) -> int:
         "compare-status", help="Compare two status --json files; no database connection.")
     compare_parser.add_argument("first", type=Path)
     compare_parser.add_argument("second", type=Path)
+    compare_parser.add_argument(
+        "--allow-database-owner-difference", metavar="FIRST:SECOND",
+        help="Accept exactly this database-owner pair (e.g. leia_app:postgres); "
+             "table owners are still compared.")
     args = parser.parse_args(argv)
     if args.command == "compare-status":
-        return compare_status(args.first, args.second)
+        owners = None
+        if args.allow_database_owner_difference:
+            parts = args.allow_database_owner_difference.split(":")
+            if len(parts) != 2 or not all(parts):
+                parser.error("--allow-database-owner-difference needs FIRST:SECOND")
+            owners = (parts[0], parts[1])
+        return compare_status(args.first, args.second, owners)
     if args.owner:
         os.environ["DB_USER"] = args.owner
         os.environ["DB_PASSWORD"] = getpass("Database owner password: ")
