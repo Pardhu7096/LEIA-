@@ -2,6 +2,8 @@
 database already has (objects created before migration tracking existed).
 
     python reconcile_migrations.py --owner postgres              # status, read-only
+    python reconcile_migrations.py --owner postgres status --json --output live.json
+    python reconcile_migrations.py compare-status live.json restored.json
     python reconcile_migrations.py --owner postgres adopt --through 006_request_limits.sql
     python reconcile_migrations.py --owner postgres adopt --through 006_request_limits.sql --apply
 
@@ -56,53 +58,47 @@ def recorded(connection) -> list[str] | None:
     return [r["name"] for r in connection.execute(f"SELECT name FROM public.{TRACKING} ORDER BY name")]
 
 
-def status(connection) -> int:
+def collect_status(connection, checksums: bool = False) -> tuple[dict, int]:
+    """Everything `status` reports, as data. Read-only session. Exit code 2 when the
+    connected role cannot read the migration history (the rest is then omitted)."""
     connection.read_only = True
-    who = connection.execute(
+    report = dict(connection.execute(
         """SELECT current_user AS connected_as, current_database() AS database,
                   pg_get_userbyid(d.datdba) AS database_owner,
                   current_setting('server_version') AS server_version
-           FROM pg_database d WHERE d.datname = current_database()""").fetchone()
-    for key, value in who.items():
-        print(f"{key}: {value}")
-    print("table owners:")
-    for row in connection.execute(
+           FROM pg_database d WHERE d.datname = current_database()""").fetchone())
+    report["table_owners"] = {
+        row["tablename"]: row["tableowner"] for row in connection.execute(
             """SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public'
-               ORDER BY tablename"""):
-        print(f"  {row['tablename']}: {row['tableowner']}")
-
-    if connection.execute(f"SELECT to_regclass('public.{TRACKING}') AS t").fetchone()["t"] is None:
-        print(f"{TRACKING}: does not exist")
-        applied = None
-    else:
-        readable = connection.execute(
+               ORDER BY tablename""")}
+    history = {"exists": False, "readable": None, "recorded": None, "leia_app_can_read": None}
+    report["history"] = history
+    if connection.execute(f"SELECT to_regclass('public.{TRACKING}') AS t").fetchone()["t"] is not None:
+        history["exists"] = True
+        history["readable"] = connection.execute(
             f"SELECT has_table_privilege('public.{TRACKING}', 'SELECT') AS ok").fetchone()["ok"]
-        if not readable:
-            print(f"{TRACKING}: exists, but {who['connected_as']} cannot read it "
-                  "(rerun with --owner)")
-            return 2
-        applied = recorded(connection)
-        print(f"{TRACKING}: exists; recorded: {', '.join(applied) or '(none)'}")
-        if connection.execute(
-                "SELECT 1 FROM pg_roles WHERE rolname = 'leia_app'").fetchone():
-            grant = connection.execute(
+        if not history["readable"]:
+            return report, 2
+        history["recorded"] = recorded(connection)
+        if connection.execute("SELECT 1 FROM pg_roles WHERE rolname = 'leia_app'").fetchone():
+            history["leia_app_can_read"] = connection.execute(
                 f"SELECT has_table_privilege('leia_app', 'public.{TRACKING}', 'SELECT') AS ok"
             ).fetchone()["ok"]
-            print(f"  leia_app can read it: {'yes' if grant else 'no'}")
+    applied = history["recorded"] or []
     shipped = [p.name for p in MIGRATIONS]
-    print(f"pending: {', '.join(n for n in shipped if n not in (applied or [])) or '(none)'}")
-    unknown = sorted(set(applied or []) - set(shipped))
-    if unknown:
-        print(f"recorded but not shipped: {', '.join(unknown)}")
+    report["pending"] = [n for n in shipped if n not in applied]
+    report["recorded_not_shipped"] = sorted(set(applied) - set(shipped))
 
     schema = live_schema(connection)
-    print("schema matches the expected state after:")
+    report["schema"] = schema
+    report["matches"] = {}
     for name in shipped:
         path = snapshot_for(name)
         if path.exists():
-            found = schema_differences(json.loads(path.read_text(encoding="utf-8")), schema)
-            print(f"  {name}: {'yes' if not found else f'no ({len(found)} difference(s))'}")
+            report["matches"][name] = schema_differences(
+                json.loads(path.read_text(encoding="utf-8")), schema)
 
+    report["property_media"] = None
     if "property_media" in schema:
         media = connection.execute(
             """SELECT count(*) AS total,
@@ -117,15 +113,95 @@ def status(connection) -> int:
             """SELECT count(*) AS n FROM (
                  SELECT 1 FROM public.property_media WHERE kind = 'panorama_room'
                  GROUP BY property_id, lower(room) HAVING count(*) > 1) d""").fetchone()["n"]
-        print(f"property_media rows: {media['total']}; incompatible with 007: "
-              f"{media['invalid_for_007']}; duplicate room panoramas: {duplicates}")
+        report["property_media"] = {"total": media["total"],
+                                    "invalid_for_007": media["invalid_for_007"],
+                                    "duplicate_room_panoramas": duplicates}
 
-    print("exact row counts:")
+    report["row_counts"] = {}
+    report["checksums"] = {} if checksums else None
     for table in schema:
-        count = connection.execute(sql.SQL("SELECT count(*) AS n FROM {}").format(
-            sql.Identifier("public", table))).fetchone()["n"]
+        name = sql.Identifier("public", table)
+        report["row_counts"][table] = connection.execute(
+            sql.SQL("SELECT count(*) AS n FROM {}").format(name)).fetchone()["n"]
+        if checksums:
+            # Order-independent digest of every row's full text form.
+            report["checksums"][table] = connection.execute(sql.SQL(
+                "SELECT md5(coalesce(string_agg(h, '' ORDER BY h), '')) AS d "
+                "FROM (SELECT md5(t::text) AS h FROM {} t) rows").format(name)).fetchone()["d"]
+    return report, 0
+
+
+def print_status(report: dict) -> None:
+    for key in ("connected_as", "database", "database_owner", "server_version"):
+        print(f"{key}: {report[key]}")
+    print("table owners:")
+    for table, owner in report["table_owners"].items():
+        print(f"  {table}: {owner}")
+    history = report["history"]
+    if not history["exists"]:
+        print(f"{TRACKING}: does not exist")
+    elif not history["readable"]:
+        print(f"{TRACKING}: exists, but {report['connected_as']} cannot read it "
+              "(rerun with --owner)")
+        return
+    else:
+        print(f"{TRACKING}: exists; recorded: {', '.join(history['recorded']) or '(none)'}")
+        if history["leia_app_can_read"] is not None:
+            print(f"  leia_app can read it: {'yes' if history['leia_app_can_read'] else 'no'}")
+    print(f"pending: {', '.join(report['pending']) or '(none)'}")
+    if report["recorded_not_shipped"]:
+        print(f"recorded but not shipped: {', '.join(report['recorded_not_shipped'])}")
+    print("schema matches the expected state after:")
+    for name, found in report["matches"].items():
+        print(f"  {name}: {'yes' if not found else f'no ({len(found)} difference(s))'}")
+    media = report["property_media"]
+    if media is not None:
+        print(f"property_media rows: {media['total']}; incompatible with 007: "
+              f"{media['invalid_for_007']}; duplicate room panoramas: "
+              f"{media['duplicate_room_panoramas']}")
+    print("exact row counts:")
+    for table, count in report["row_counts"].items():
         print(f"  {table}: {count}")
-    return 0
+
+
+def status(connection, as_json: bool = False, output: Path | None = None) -> int:
+    report, code = collect_status(connection, checksums=as_json)
+    if as_json:
+        text = json.dumps(report, indent=2, sort_keys=True, default=str)
+        if output:
+            output.write_text(text + "\n", encoding="utf-8")
+        else:
+            print(text)
+    else:
+        print_status(report)
+    return code
+
+
+# Fields that must be identical between a database and a restored copy of it.
+COMPARED_FIELDS = ("database_owner", "server_version", "table_owners", "history", "pending",
+                   "recorded_not_shipped", "matches", "property_media", "row_counts",
+                   "checksums", "schema")
+
+
+def compare_status(first: Path, second: Path) -> int:
+    """Compare two `status --json` files field by field (the database name may differ)."""
+    a = json.loads(first.read_text(encoding="utf-8-sig"))
+    b = json.loads(second.read_text(encoding="utf-8-sig"))
+    problems = []
+    for report, path in ((a, first), (b, second)):
+        if report.get("checksums") is None or report.get("schema") is None:
+            problems.append(f"{path.name}: incomplete status (run as the owner with --json)")
+    for field in COMPARED_FIELDS:
+        if field == "schema":
+            if a.get("schema") is not None and b.get("schema") is not None:
+                problems += [f"schema: {line}" for line in
+                             schema_report.differences(a["schema"], b["schema"])]
+        elif a.get(field) != b.get(field):
+            problems.append(f"{field}: {a.get(field)!r} != {b.get(field)!r}")
+    for line in problems:
+        print(line)
+    print("Identical." if not problems else f"{len(problems)} difference(s).")
+    return 1 if problems else 0
 
 
 def adopt(connection, through: str, apply: bool) -> int:
@@ -178,17 +254,28 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--owner", help="Database owner role; prompts privately for its password.")
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("status", help="Read-only report (default).")
+    status_parser = sub.add_parser("status", help="Read-only report (default).")
+    status_parser.add_argument("--json", action="store_true",
+                               help="Machine-readable report, including per-table checksums.")
+    status_parser.add_argument("--output", type=Path, help="Write the JSON report to this file.")
     adopt_parser = sub.add_parser("adopt", help="Record already-present migrations.")
     adopt_parser.add_argument("--through", required=True, help="Last migration to record.")
     adopt_parser.add_argument("--apply", action="store_true", help="Commit; default is a dry run.")
+    compare_parser = sub.add_parser(
+        "compare-status", help="Compare two status --json files; no database connection.")
+    compare_parser.add_argument("first", type=Path)
+    compare_parser.add_argument("second", type=Path)
     args = parser.parse_args(argv)
+    if args.command == "compare-status":
+        return compare_status(args.first, args.second)
     if args.owner:
         os.environ["DB_USER"] = args.owner
         os.environ["DB_PASSWORD"] = getpass("Database owner password: ")
     with get_connection() as connection:
         if args.command == "adopt":
             return adopt(connection, args.through, args.apply)
+        if args.command == "status":
+            return status(connection, args.json, args.output)
         return status(connection)
 
 

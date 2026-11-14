@@ -4,6 +4,7 @@ situation (objects made before tracking, 007 pending) ends at the final schema
 with data intact. Needs TEST_DATABASE_URL; skipped otherwise."""
 
 import json
+import os
 from uuid import uuid4
 
 import psycopg
@@ -168,3 +169,113 @@ def test_status_is_read_only(scratch, capsys):
     build_untracked_006(scratch)
     assert reconcile_migrations.main(["status"]) == 0
     assert history(scratch) is None  # status never creates the tracking table
+
+
+def _copy_database(connect):
+    """Copy the scratch database (CREATE DATABASE ... TEMPLATE) and return a
+    function that points the app settings at the copy."""
+    with connect() as connection:
+        source = connection.info.dbname
+    copy = f"{source}_copy"
+    with connect(autocommit=True) as connection:
+        connection.execute(f'CREATE DATABASE "{copy}" TEMPLATE "{source}"')
+    return source, copy
+
+
+def _drop(connect, name):
+    with connect(autocommit=True) as connection:
+        connection.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+
+
+def test_status_json_is_structured_and_matches_text(scratch, tmp_path, capsys):
+    build_untracked_006(scratch, tracked=[p.name for p in MIGRATIONS[1:7]])
+    out = tmp_path / "live.json"
+    assert reconcile_migrations.main(["status", "--json", "--output", str(out)]) == 0
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["history"] == {"exists": True, "readable": True,
+                                 "recorded": [p.name for p in MIGRATIONS[1:7]],
+                                 "leia_app_can_read": report["history"]["leia_app_can_read"]}
+    assert report["pending"] == ["000_core_baseline.sql", "007_room_panoramas.sql"]
+    assert report["matches"][THROUGH] == []
+    assert len(report["matches"]["007_room_panoramas.sql"]) == 2
+    assert report["property_media"] == {
+        "total": 2, "invalid_for_007": 0, "duplicate_room_panoramas": 0}
+    assert report["row_counts"]["users"] == 1 and report["row_counts"]["property_media"] == 2
+    assert set(report["checksums"]) == set(report["row_counts"]) == set(report["schema"])
+    assert all(len(d) == 32 for d in report["checksums"].values())
+    capsys.readouterr()
+    # The text report says the same thing.
+    assert reconcile_migrations.main(["status"]) == 0
+    text = capsys.readouterr().out
+    assert "pending: 000_core_baseline.sql, 007_room_panoramas.sql" in text
+    assert f"  {THROUGH}: yes" in text
+    assert "  007_room_panoramas.sql: no (2 difference(s))" in text
+
+
+def test_compare_status_accepts_a_faithful_copy_and_catches_changes(
+        scratch, tmp_path, capsys, monkeypatch):
+    build_untracked_006(scratch, tracked=[p.name for p in MIGRATIONS[1:7]])
+    source, copy = _copy_database(scratch)
+    try:
+        live, restored = tmp_path / "live.json", tmp_path / "restored.json"
+        assert reconcile_migrations.main(["status", "--json", "--output", str(live)]) == 0
+        monkeypatch.setenv("DB_NAME", copy)
+        assert reconcile_migrations.main(["status", "--json", "--output", str(restored)]) == 0
+        capsys.readouterr()
+        assert reconcile_migrations.main(["compare-status", str(live), str(restored)]) == 0
+        assert capsys.readouterr().out.strip() == "Identical."
+
+        # Same row count, different content: only the checksum notices.
+        with psycopg.connect(os.environ["TEST_DATABASE_URL"], dbname=copy) as connection:
+            connection.execute("UPDATE users SET name = 'Changed'")
+        assert reconcile_migrations.main(["status", "--json", "--output", str(restored)]) == 0
+        capsys.readouterr()
+        assert reconcile_migrations.main(["compare-status", str(live), str(restored)]) == 1
+        out = capsys.readouterr().out
+        assert out.startswith("checksums:") and "1 difference(s)." in out
+
+        # A missing row, history row and index are all reported.
+        with psycopg.connect(os.environ["TEST_DATABASE_URL"], dbname=copy) as connection:
+            connection.execute("DELETE FROM property_media WHERE kind = 'panorama'")
+            connection.execute("DELETE FROM crm_schema_migrations WHERE name = %s", (THROUGH,))
+            connection.execute("DROP INDEX request_limits_expiry")
+        assert reconcile_migrations.main(["status", "--json", "--output", str(restored)]) == 0
+        capsys.readouterr()
+        assert reconcile_migrations.main(["compare-status", str(live), str(restored)]) == 1
+        out = capsys.readouterr().out
+        for field in ("history:", "pending:", "row_counts:", "property_media:",
+                      "schema: request_limits.indexes.request_limits_expiry: missing"):
+            assert field in out
+    finally:
+        _drop(scratch, copy)
+
+
+def test_compare_status_rejects_reports_without_data(tmp_path, capsys):
+    """A report written by a role that cannot read history has no checksums."""
+    partial = {"connected_as": "leia_app", "database": "leia", "database_owner": "postgres",
+               "server_version": "18.6", "table_owners": {},
+               "history": {"exists": True, "readable": False, "recorded": None,
+                           "leia_app_can_read": None}}
+    first, second = tmp_path / "a.json", tmp_path / "b.json"
+    first.write_text(json.dumps(partial), encoding="utf-8")
+    second.write_text("﻿" + json.dumps(partial), encoding="utf-8")  # BOM, as PowerShell 5.1 writes
+    assert reconcile_migrations.main(["compare-status", str(first), str(second)]) == 1
+    assert "incomplete status" in capsys.readouterr().out
+
+
+def test_status_json_for_a_role_that_cannot_read_history_exits_2(scratch, tmp_path, monkeypatch):
+    build_untracked_006(scratch, tracked=[THROUGH])
+    role, password = f"api_{uuid4().hex[:12]}", uuid4().hex
+    with scratch(autocommit=True) as connection:
+        connection.execute(f"CREATE ROLE {role} LOGIN PASSWORD '{password}'")
+    try:
+        monkeypatch.setenv("DB_USER", role)
+        monkeypatch.setenv("DB_PASSWORD", password)
+        out = tmp_path / "app.json"
+        assert reconcile_migrations.main(["status", "--json", "--output", str(out)]) == 2
+        report = json.loads(out.read_text(encoding="utf-8"))
+        assert report["history"]["readable"] is False and "row_counts" not in report
+    finally:
+        with scratch(autocommit=True) as connection:
+            connection.execute(f"DROP OWNED BY {role}")
+            connection.execute(f"DROP ROLE {role}")
