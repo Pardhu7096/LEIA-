@@ -142,3 +142,9 @@ python schema_report.py > tests/expected_schema.json
 
 `python schema_report.py --compare tests/expected_schema.json` checks any database
 against it without changing anything (read-only session).
+
+`tests/expected_schema_006.json` is the schema after 000–006, used by
+`reconcile_migrations.py adopt` to record migrations that a database already has
+(objects made before tracking existed). Keep it unchanged; add a snapshot for
+another migration only if such a database needs adopting at that point. The
+procedure for the development database is `docs/DEV_DATABASE_RECONCILIATION.md`.

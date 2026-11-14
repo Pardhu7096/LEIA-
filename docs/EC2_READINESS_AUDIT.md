@@ -83,6 +83,7 @@ Status: **Fixed** = changed on this branch and tested locally · **Open** = need
 | M8 | The interactive API explorer (`/docs`, `/openapi.json`) is public by default (reproduced). | `backend/main.py:37` | Nginx block provided; open until installed |
 | M9 | The 360° tour page loads its viewer from a public CDN without an integrity hash, and its content policy allows inline script. | `backend/property_media.py:163-185` | Open |
 | M10 | Every request opens new PostgreSQL connections (two to four for a signed-in request). Fine at launch scale, a limit later. | `backend/database.py` | Open |
+| M11 | Preflight accepted a database on another host without an encrypted connection (`DB_SSLMODE` unset), so credentials and data could cross the network in clear text. | `backend/preflight.py` | Fixed 14 Nov — deployed preflight requires `require`/`verify-ca`/`verify-full` for a non-local `DB_HOST` |
 
 ### Low and informational
 
@@ -296,3 +297,42 @@ lint, 13 tests.
 
 Not verified here: the comparison against the real development database (it was not accessed,
 by instruction) and table privileges, which `schema_report.py` does not compare.
+
+## 10. Update 14 November 2026 — development database history, backup and 007
+
+The owner's read-only comparison of the development database printed two differences,
+both from `007_room_panoramas.sql` (kind check without `panorama_room`; missing index
+`property_media_room_panorama_unique`). Findings and changes:
+
+- **Backup failure explained.** `pg_dump` does not read `backend\.env`; it uses the prompt,
+  `PGPASSWORD` or `pgpass.conf` (the last two silently). The server log line names the
+  exact cause. Independently of the password, `pg_dump` as `leia_app` cannot work: the
+  least-privilege role has no rights on `crm_schema_migrations` (older runners never
+  granted them) and `pg_dump` stops with "permission denied" — reproduced. Back up as the
+  owner; no `pg_hba.conf` change is needed.
+- **"No tracking table" is very probably a false negative.** `information_schema` hides
+  tables a role cannot read (reproduced: 0 rows for `leia_app`, while the catalog has the
+  table). `expected_schema.json` contains `crm_schema_migrations`, so a really missing
+  table would have been a third difference.
+- **A database built by 000–006 shows exactly the owner's two differences.**
+- **New `backend/reconcile_migrations.py`.** `status` (read-only) shows owners, history,
+  pending migrations, which migration's schema matches exactly, 007 compatibility of the
+  media rows and exact row counts. `adopt --through 006_request_limits.sql` records
+  history only if the live schema equals `tests/expected_schema_006.json`; dry run unless
+  `--apply`; never runs migration SQL; refuses on any difference, missing snapshot or
+  later history. 10 tests.
+- **Procedure:** `docs/DEV_DATABASE_RECONCILIATION.md` (diagnose, back up, restore
+  rehearsal, status, adopt, 007, verify). Rehearsed end to end here on a database shaped
+  like development (PostgreSQL 16 tools; no PostgreSQL 18 `pg_dump` in the sandbox):
+  backup lists all 9 tables, restore identical, adopt recorded only `000`, the runner
+  applied only `007`, `Schema matches.`, row counts unchanged.
+- **M11** fixed (database SSL in preflight).
+
+Not done, by instruction or because it needs the development machine: backup and
+restore of the real database, any change to it, the 007 run there.
+
+Tests (sandbox): backend 98 passed on PostgreSQL 18.6 and on 16 (fresh database each);
+74 passed, 24 skipped without a database. Agent app: typecheck, lint, 26 tests passed.
+Customer app: typecheck, lint, 13 tests passed. `pip-audit`: none. `npm audit --omit=dev`:
+9 / 5 moderate (L8, unchanged). Bandit: no real findings (B608 on a constant table name;
+B105 on token-type labels).

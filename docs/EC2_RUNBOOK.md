@@ -106,7 +106,7 @@ sudo chown leia-deploy-ENV:leia-deploy-ENV /opt/leia/ENV/shared/.env && sudo chm
 | Name | Required | Purpose |
 | --- | --- | --- |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | yes | API database login (`leia_app`) |
-| `DB_SSLMODE` | remote database only | `require` or `verify-full` |
+| `DB_SSLMODE` | remote database only | `require`, `verify-ca` or `verify-full`; preflight refuses a non-local `DB_HOST` without one |
 | `JWT_SECRET` | yes | 32+ characters, unique per environment. Changing it signs everyone out and resets request-limit counters |
 | `GROQ_API_KEY` | yes | AI assistant |
 | `COOKIE_SECURE` | yes, `true` | session cookies over HTTPS only |
