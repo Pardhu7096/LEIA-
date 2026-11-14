@@ -10,7 +10,9 @@ new backup file and a new scratch copy.
      owned like `leia`; the copy must compare Identical.
   4. Rehearsal on the scratch copy only: apply 007 with the project runner, verify
      it changed exactly 007's schema and no data; run the rollback script and
-     verify the copy is Identical to before; apply 007 again.
+     verify the copy is Identical to before; apply 007 again. Every runner and
+     rollback call passes --expect-database <scratch>, checked on the connection
+     that writes; every status report must name the database it was meant for.
   5. The live database is compared before/after: must be Identical.
 
 Stop the LEIA backend first, then run in Windows PowerShell 5.1 (or 7):
@@ -26,7 +28,7 @@ param(
     [string]$Python          = "D:\LEIA\backend\.venv\Scripts\python.exe",
     [string]$PgBin           = "C:\Program Files\PostgreSQL\18\bin",
     [string]$ExpectedBranch  = "audit/leia-ec2-readiness",
-    [string]$RequiredCommit  = "6bfeb10e8beb5ae4a32d17b99ba1ead84c7660af",
+    [string]$RequiredCommit  = "26ff91332cabdf33c0a479778e22119394ed9a43",
     [string]$OwnerRole       = "postgres",
     [string]$Step3Report     = "status-after-step3-20261114_174420.json",
     [string]$Migration       = "007_room_panoramas.sql",
@@ -42,7 +44,6 @@ $Log     = Join-Path $BackupDir "step4-$Stamp.log"
 $Backend = Join-Path $AuditWorktree "backend"
 $Tool    = Join-Path $Backend "reconcile_migrations.py"
 $Runner  = Join-Path $Backend "migrate_crm.py"
-$Down    = Join-Path (Join-Path $Backend "rollback") "007_room_panoramas.down.sql"
 $Exe     = ""
 if ($env:OS -eq "Windows_NT") { $Exe = ".exe" }
 $ReadOnlyOption  = "-c default_transaction_read_only=on"
@@ -102,9 +103,14 @@ function Get-Root([string]$Path) {
 
 function Use-Scratch([string]$Name) {
     # Point the Python tools at the scratch copy, writable. Only ever the scratch name.
-    if ($Name -notmatch '^leia_step4_check_\d{8}_\d{6}$') { throw "Refusing to target '$Name'." }
+    if ($Name -eq "leia" -or $Name -notmatch '^leia_step4_check_\d{8}_\d{6}$') { throw "Refusing to target '$Name'." }
     $env:DB_NAME = $Name
     Remove-Item Env:PGOPTIONS -ErrorAction SilentlyContinue
+}
+function Assert-ReportDatabase([string]$Path, [string]$Name) {
+    $actual = (Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json).database
+    if ($actual -ne $Name) { throw "Report $Path is for database '$actual', expected '$Name'." }
+    Write-StepLog "    report database = $Name"
 }
 function Use-Live {
     Remove-Item Env:DB_NAME -ErrorAction SilentlyContinue
@@ -162,6 +168,7 @@ try {
     $LiveBefore = Join-Path $BackupDir "status-live-before-step4-$Stamp.json"
     Invoke-Native -Label "status (owner, text)" -Program $Python -Arguments @($Tool, "status") | Out-Null
     Invoke-Native -Label "status (owner, json)" -Program $Python -Arguments @($Tool, "status", "--json", "--output", $LiveBefore) | Out-Null
+    Assert-ReportDatabase $LiveBefore "leia"
     try {
         Invoke-Native -Label "unchanged since step 3" -Program $Python -Arguments @(
             $Tool, "compare-status", (Join-Path $BackupDir $Step3Report), $LiveBefore) | Out-Null
@@ -176,9 +183,10 @@ try {
 
     # ---- 3. Read-only dry run on the live database ----------------------------------------
     Write-StepLog "== 3. Dry run on leia (read-only)"
-    $dry = Invoke-Native -Label "migrate_crm --dry-run --expect $Migration" -Program $Python -Arguments @(
-        $Runner, "--dry-run", "--expect", $Migration)
+    $dry = Invoke-Native -Label "migrate_crm --dry-run --expect $Migration --expect-database leia" -Program $Python -Arguments @(
+        $Runner, "--dry-run", "--expect", $Migration, "--expect-database", "leia")
     $applyLines = @($dry | Where-Object { $_ -match '^\s+apply ' })
+    if (-not ($dry -contains "Connected to database: leia")) { throw "Dry run was not connected to leia." }
     if ($applyLines.Count -ne 1 -or $applyLines[0].Trim() -ne "apply $Migration  SHA-256 $MigrationSha256") {
         throw "Dry run does not show exactly the reviewed $Migration."
     }
@@ -219,26 +227,35 @@ try {
     if ($DbOwner -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { throw "Unexpected database owner '$DbOwner'." }
     Use-Scratch $Scratch
     Invoke-Native -Label "createdb $Scratch (owner $DbOwner)" -Program $CreateDb -Arguments ($Connection + @("--maintenance-db=postgres", "--owner=$DbOwner", $Scratch)) | Out-Null
+    $objects = Invoke-Sql $Scratch "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public'" "scratch copy is new and empty"
+    if ($objects[0] -ne "0") { throw "$Scratch is not empty; refusing to restore into it." }
     Invoke-Native -Label "pg_restore into $Scratch" -Program $PgRestore -Arguments ($Connection + @("-d", $Scratch, "--exit-on-error", "--single-transaction", $Dump)) | Out-Null
     $CopyBefore = Join-Path $BackupDir "status-scratch-before-007-$Stamp.json"
     Invoke-Native -Label "status (scratch, json)" -Program $Python -Arguments @($Tool, "status", "--json", "--output", $CopyBefore) | Out-Null
+    Assert-ReportDatabase $CopyBefore $Scratch
     Invoke-Native -Label "scratch copy equals leia" -Program $Python -Arguments @($Tool, "compare-status", $LiveBefore, $CopyBefore) | Out-Null
 
     # ---- 6. Rehearse 007 and its rollback on the scratch copy only --------------------------
     Write-StepLog "== 6. Rehearsal on $Scratch (never leia)"
-    $applied = Invoke-Native -Label "migrate_crm --expect $Migration (scratch)" -Program $Python -Arguments @($Runner, "--expect", $Migration)
+    $applied = Invoke-Native -Label "migrate_crm --expect $Migration --expect-database $Scratch" -Program $Python -Arguments @(
+        $Runner, "--expect", $Migration, "--expect-database", $Scratch)
+    if (-not ($applied -contains "Connected to database: $Scratch")) { throw "Runner was not connected to $Scratch." }
     if (-not ($applied -contains "Applied $Migration")) { throw "Runner did not report applying $Migration on the scratch copy." }
     $CopyAfter = Join-Path $BackupDir "status-scratch-after-007-$Stamp.json"
     Invoke-Native -Label "status (scratch after 007, json)" -Program $Python -Arguments @($Tool, "status", "--json", "--output", $CopyAfter) | Out-Null
+    Assert-ReportDatabase $CopyAfter $Scratch
     Invoke-Native -Label "verify-migration (scratch)" -Program $Python -Arguments @(
         $Tool, "verify-migration", $CopyBefore, $CopyAfter, "--applied", $Migration) | Out-Null
-    Invoke-Native -Label "rollback script (scratch)" -Program $Psql -Arguments ($Connection + @(
-        "-d", $Scratch, "-v", "ON_ERROR_STOP=1", "-f", $Down)) | Out-Null
+    $rolled = Invoke-Native -Label "rollback --expect-database $Scratch" -Program $Python -Arguments @(
+        $Runner, "--rollback", $Migration, "--expect-database", $Scratch)
+    if (-not ($rolled -contains "Connected to database: $Scratch")) { throw "Rollback was not connected to $Scratch." }
     $CopyRolledBack = Join-Path $BackupDir "status-scratch-rolled-back-$Stamp.json"
     Invoke-Native -Label "status (scratch after rollback, json)" -Program $Python -Arguments @($Tool, "status", "--json", "--output", $CopyRolledBack) | Out-Null
+    Assert-ReportDatabase $CopyRolledBack $Scratch
     Invoke-Native -Label "rollback restored the pre-007 copy exactly" -Program $Python -Arguments @(
         $Tool, "compare-status", $CopyBefore, $CopyRolledBack) | Out-Null
-    $again = Invoke-Native -Label "007 applies again after rollback (scratch)" -Program $Python -Arguments @($Runner, "--expect", $Migration)
+    $again = Invoke-Native -Label "007 applies again after rollback (--expect-database $Scratch)" -Program $Python -Arguments @(
+        $Runner, "--expect", $Migration, "--expect-database", $Scratch)
     if (-not ($again -contains "Applied $Migration")) { throw "007 did not apply again on the scratch copy." }
     Use-Live
 
@@ -246,10 +263,11 @@ try {
     Write-StepLog "== 7. Live database unchanged"
     $LiveAfter = Join-Path $BackupDir "status-live-after-step4-$Stamp.json"
     Invoke-Native -Label "status (owner, json)" -Program $Python -Arguments @($Tool, "status", "--json", "--output", $LiveAfter) | Out-Null
+    Assert-ReportDatabase $LiveAfter "leia"
     Invoke-Native -Label "leia before vs after (must be identical)" -Program $Python -Arguments @($Tool, "compare-status", $LiveBefore, $LiveAfter) | Out-Null
 
     if ($DropScratchAfterVerify) {
-        Use-Scratch $Scratch; Remove-Item Env:DB_NAME
+        Use-Scratch $Scratch; Remove-Item Env:DB_NAME   # Use-Scratch re-checks the name (never leia)
         Invoke-Native -Label "dropdb $Scratch" -Program $DropDb -Arguments ($Connection + @("--maintenance-db=postgres", $Scratch)) | Out-Null
         Use-Live
         Write-StepLog "Scratch copy $Scratch dropped."

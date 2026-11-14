@@ -5,7 +5,8 @@ Requires the owner's explicit approval. Do not run before it is given.
 Before (read-only): worktree version; 007 is the reviewed file (SHA-256); the step-4
 backup's SHA-256; the database is still exactly the state the step-4 backup was
 taken from (structured comparison incl. content checksums); a dry run shows only 007.
-Apply: the project runner, one transaction: migrate_crm.py --expect 007_room_panoramas.sql
+Apply: the project runner, one transaction:
+  migrate_crm.py --expect 007_room_panoramas.sql --expect-database leia
 After: verify-migration (only 007's two schema changes, no data change), history
 000-007 once each, nothing pending, the app login sees the same.
 
@@ -20,7 +21,7 @@ param(
     [string]$Python          = "D:\LEIA\backend\.venv\Scripts\python.exe",
     [string]$PgBin           = "C:\Program Files\PostgreSQL\18\bin",
     [string]$ExpectedBranch  = "audit/leia-ec2-readiness",
-    [string]$RequiredCommit  = "6bfeb10e8beb5ae4a32d17b99ba1ead84c7660af",
+    [string]$RequiredCommit  = "26ff91332cabdf33c0a479778e22119394ed9a43",
     [string]$OwnerRole       = "postgres",
     [string]$Migration       = "007_room_panoramas.sql",
     [string]$MigrationSha256 = "B29AF32A508E74251F4BB0C8B35116D87C5B35D1C407F6BD493BEEA85F6D2C9A"
@@ -34,7 +35,6 @@ $Log     = Join-Path $BackupDir "step5-$Stamp.log"
 $Backend = Join-Path $AuditWorktree "backend"
 $Tool    = Join-Path $Backend "reconcile_migrations.py"
 $Runner  = Join-Path $Backend "migrate_crm.py"
-$Down    = Join-Path (Join-Path $Backend "rollback") "007_room_panoramas.down.sql"
 $Exe     = ""
 if ($env:OS -eq "Windows_NT") { $Exe = ".exe" }
 $ReadOnlyOption  = "-c default_transaction_read_only=on"
@@ -144,6 +144,7 @@ try {
     Write-StepLog "== Pre-check 4: database still equals the step-4 backup"
     $Before = Join-Path $BackupDir "status-before-step5-$Stamp.json"
     Invoke-Native -Label "status (owner, json)" -Program $Python -Arguments @($Tool, "status", "--json", "--output", $Before) | Out-Null
+    if ((Get-Content -LiteralPath $Before -Raw | ConvertFrom-Json).database -ne "leia") { throw "Status report is not for leia." }
     try {
         Invoke-Native -Label "compare with the step-4 report" -Program $Python -Arguments @(
             $Tool, "compare-status", (Join-Path $BackupDir "status-live-after-step4-$BackupStamp.json"), $Before) | Out-Null
@@ -151,7 +152,8 @@ try {
 
     Write-StepLog "== Pre-check 5: dry run"
     $dry = Invoke-Native -Label "migrate_crm --dry-run --expect $Migration" -Program $Python -Arguments @(
-        $Runner, "--dry-run", "--expect", $Migration)
+        $Runner, "--dry-run", "--expect", $Migration, "--expect-database", "leia")
+    if (-not ($dry -contains "Connected to database: leia")) { throw "Dry run was not connected to leia." }
     $applyLines = @($dry | Where-Object { $_ -match '^\s+apply ' })
     if ($applyLines.Count -ne 1 -or $applyLines[0].Trim() -ne "apply $Migration  SHA-256 $MigrationSha256") {
         throw "Dry run does not show exactly the reviewed $Migration."
@@ -161,7 +163,8 @@ try {
     Remove-Item Env:PGOPTIONS -ErrorAction SilentlyContinue
     $Phase = "apply"
     try {
-        $run = Invoke-Native -Label "migrate_crm --expect $Migration" -Program $Python -Arguments @($Runner, "--expect", $Migration)
+        $run = Invoke-Native -Label "migrate_crm --expect $Migration --expect-database leia" -Program $Python -Arguments @(
+            $Runner, "--expect", $Migration, "--expect-database", "leia")
     } finally { $env:PGOPTIONS = $ReadOnlyOption }
     if (-not (($run -contains "Applied $Migration") -and ($run -contains "CRM database is up to date."))) {
         throw "The runner ended without confirming $Migration."
@@ -189,7 +192,7 @@ try {
     if (-not ($app -match '^\s+007_room_panoramas\.sql: yes$')) { throw "The app login does not see the 007 schema." }
 
     Write-StepLog "Rollback, only if needed and approved (backend stopped; refuses if room panoramas exist):"
-    Write-StepLog "    & `"$Psql`" -h $($settings['DB_HOST']) -p $($settings['DB_PORT']) -U $OwnerRole -W -d leia -v ON_ERROR_STOP=1 -f `"$Down`""
+    Write-StepLog "    & `"$Python`" `"$Runner`" --owner $OwnerRole --expect-database leia --rollback $Migration"
     Write-StepLog "RESULT: OK - $Migration applied and verified; history 000-007 once each; nothing pending; no data changed."
     $completed = $true
 } catch {
