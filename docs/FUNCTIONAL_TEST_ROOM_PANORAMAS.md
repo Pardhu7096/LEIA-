@@ -102,3 +102,33 @@ Sign-in sessions and rate-limit rows created by the test logins are normal app d
 | F2 | Consistent room names, natural order; keep stored media and case-insensitive uniqueness | Fixed on the same branch (backend: replace keeps the first spelling; natural, case-insensitive lists); not merged. When it reaches the audit branch, `test_migration_007.py` must expect the first spelling. |
 | F3 | Audit and plan only | `docs/DEV_CHECKOUT_SYNC_PLAN.md` |
 | F4 | Deferred to a later release; single panoramas stay viewable | No change |
+
+## Step 6 stopped at the admin login (14 Nov 19:56) and how to resume
+
+`step6-20261114_195648.log`: backup, baseline and the agent-side steps ran; the QA listing
+`0d9b999a-0a1c-4ed7-badb-2277cd9d84cd` was created, given its media and submitted; the admin
+login then got `401 Incorrect email or password`. Nothing after that ran (no approval,
+no customer checks, no report).
+
+**Roles.** `users.role` is `customer`, `agent` or `admin` (CHECK constraint); emails are
+stored in lower case (CHECK `email_lowercase`) and logins lower-case what is typed.
+Public registration always makes a `customer`; agents and admins exist only where the role
+was set in the database. Agents and admins use the same staff login (`/auth/staff/login`):
+a wrong email or password gives **401**; a correct customer login gives **403**. Agents see
+and edit only their own listings and can submit them; only admins can approve
+(`require_admin`) and see every listing. The role is re-read from the database on every
+request. So a 401 at the admin prompt means the email typed does not exist or the password
+is wrong, not that the account lacks the admin role (that would have failed later, at approval, with 403).
+
+**1. Read-only diagnostic** (changes nothing; staff email and role only, no passwords or hashes):
+`powershell -ExecutionPolicy Bypass -File D:\LEIA-schema-audit\scripts\windows\leia-diag-staff-and-qa.ps1 -QaId 0d9b999a-0a1c-4ed7-badb-2277cd9d84cd`
+Expected for a resumable listing: status `submitted`, not reviewed; media: cover, panorama,
+`panorama_room` x2 (bedroom 1, Bedroom 2), photo x2 (Kitchen = gallery cover, Hall); one [QA] listing.
+
+**2. Resume (needs approval; same QA listing, nothing created or deleted):**
+`powershell -ExecutionPolicy Bypass -File D:\LEIA-schema-audit\scripts\windows\leia-step6b-resume.ps1 -BackupStamp <today's step-1 stamp> -QaId 0d9b999a-0a1c-4ed7-badb-2277cd9d84cd`
+Before any change it checks the worktree, today's backup, the local backend, the qa-listing
+file and stopped log naming this id, no earlier report, and that every published listing
+equals the 19:56 baseline. A refused login (3 tries), a non-admin account, or a listing not in
+the expected state stops with "STOPPED BEFORE ANY CHANGE". Otherwise it approves only the QA
+listing and runs the customer checks and the comparison of every other listing.
