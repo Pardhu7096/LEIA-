@@ -12,6 +12,14 @@
         submits it, approves it with an admin account, and checks what staff and
         customers get. Prints the guarded SQL that removes the listing again.
 
+    python room_panorama_check.py resume --out DIR --listing-id ID --baseline FILE          # plan only
+    python room_panorama_check.py resume --out DIR --listing-id ID --baseline FILE --apply  # WRITES
+        Continues a create run that stopped at the admin login, using the SAME QA listing
+        (never creates another): checks the listing is the recorded QA listing, still
+        "submitted", with the expected rooms, photos and single panorama; confirms the
+        login is an admin; approves it; runs the customer checks. The only change to
+        the database is that listing's approval (plus the login session record).
+
     python room_panorama_check.py compare BEFORE AFTER [--ignore LISTING_ID]
         Existing listings unchanged.
 
@@ -29,6 +37,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -163,11 +172,44 @@ def check_existing(api, out):
     return 1 if report.failed else 0
 
 
-def login(api, role):
-    email = input(f"{role} account email: ").strip()
-    password = getpass.getpass(f"{role} account password (hidden): ")
-    _, data = api.call("POST", "/auth/staff/login", body={"email": email, "password": password})
-    return data["access_token"]
+def login(api, role, attempts=1):
+    """Staff login; on "Incorrect email or password" asks again, up to `attempts` times."""
+    for attempt in range(1, attempts + 1):
+        email = input(f"{role} account email: ").strip()
+        password = getpass.getpass(f"{role} account password (hidden): ")
+        status, data = api.call("POST", "/auth/staff/login", body={"email": email, "password": password},
+                                expect=(200, 401))
+        if status == 200:
+            return data["access_token"]
+        left = attempts - attempt
+        print(f"Login refused: incorrect email or password.{f' {left} attempt(s) left.' if left else ''}")
+    raise SystemExit(f"{role} login failed {attempts} time(s).")
+
+
+def customer_checks(api, report, listing_id, photos, before):
+    """What customers see once the QA listing is approved; every other listing unchanged."""
+    after = public_state(api)
+    mine = after.get(str(listing_id))
+    report.check("customer: listing is public", mine is not None)
+    if mine:
+        report.check("customer: single tour served and shows the single panorama",
+                     mine["tour_is_page"] and mine["tour_image_colour"] is not None
+                     and all(abs(a - b) <= 30 for a, b in zip(mine["tour_image_colour"], COLOURS["single"])))
+        report.check("customer: exactly two room tours",
+                     sorted(r["room"].lower() for r in mine["rooms"]) == ["bedroom 1", "bedroom 2"], mine["rooms"])
+        for room in mine["rooms"]:
+            status, page = api.call("GET", room["tour"], expect=(200, 404))
+            _, image = api.call("GET", f"/property-media/{room['id']}")
+            expected = "bedroom 1 (replacement)" if room["room"].lower() == "bedroom 1" else "Bedroom 2"
+            report.check(f"customer: room tour {room['room']!r} served with its own image",
+                         status == 200 and same_colour(image, expected), dominant_colour(image))
+        report.check("customer: gallery shows the two photos only",
+                     sorted(g[0] for g in mine["gallery"]) == sorted(photos), mine["gallery"])
+    others_before = {k: v for k, v in before.items() if k != str(listing_id)}
+    others_after = {k: v for k, v in after.items() if k != str(listing_id)}
+    report.check("existing listings unchanged", others_before == others_after)
+
+    return after
 
 
 def create(api, out, apply):
@@ -241,30 +283,107 @@ def create(api, out, apply):
     api.call("POST", f"{path}/approve", body={"version": submitted["version"]})
     api.token = None
 
-    after = public_state(api)
-    mine = after.get(str(listing_id))
-    report.check("customer: listing is public", mine is not None)
-    if mine:
-        report.check("customer: single tour served and shows the single panorama",
-                     mine["tour_is_page"] and mine["tour_image_colour"] is not None
-                     and all(abs(a - b) <= 30 for a, b in zip(mine["tour_image_colour"], COLOURS["single"])))
-        report.check("customer: exactly two room tours",
-                     sorted(r["room"].lower() for r in mine["rooms"]) == ["bedroom 1", "bedroom 2"], mine["rooms"])
-        for room in mine["rooms"]:
-            status, page = api.call("GET", room["tour"], expect=(200, 404))
-            _, image = api.call("GET", f"/property-media/{room['id']}")
-            expected = "bedroom 1 (replacement)" if room["room"].lower() == "bedroom 1" else "Bedroom 2"
-            report.check(f"customer: room tour {room['room']!r} served with its own image",
-                         status == 200 and same_colour(image, expected), dominant_colour(image))
-        report.check("customer: gallery shows the two photos only",
-                     sorted(g[0] for g in mine["gallery"]) == sorted(photos), mine["gallery"])
-    others_before = {k: v for k, v in before.items()}
-    others_after = {k: v for k, v in after.items() if k != str(listing_id)}
-    report.check("existing listings unchanged", others_before == others_after)
+    after = customer_checks(api, report, listing_id, photos, before)
 
     result = {"listing_id": str(listing_id), "title": title, "results": report.results,
               "before": before, "after": after}
     report_path = out / f"qa-run-{stamp}.json"
+    report_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    print(f"Saved {report_path}")
+    print("\nTo remove the test listing later (needs approval; as postgres, one transaction):")
+    print(cleanup_sql(listing_id, title))
+    print("RESULT: " + ("OK" if not report.failed else f"{len(report.failed)} check(s) FAILED"))
+    return 1 if report.failed else 0
+
+
+NOTHING_CHANGED = 3
+
+
+def unchanged(message):
+    """Stop before the approval: exit code 3 tells the wrapper the database was not changed."""
+    print(f"{message}\nNothing was changed.")
+    sys.exit(NOTHING_CHANGED)
+
+
+def resume(api, out, listing_id, baseline_path, apply):
+    """Finish a create run that stopped at the admin login, on the same QA listing."""
+    markers = sorted(out.glob("qa-listing-*.txt"))
+    if len(markers) != 1:
+        unchanged(f"Expected exactly one qa-listing-*.txt in {out}, found {len(markers)}.")
+    recorded_id, title = (markers[0].read_text(encoding="utf-8").splitlines() + ["", ""])[:2]
+    if recorded_id.strip() != str(listing_id) or not title.startswith("[QA] Room panoramas "):
+        unchanged(f"{markers[0].name} records {recorded_id!r}, not {listing_id}; refusing.")
+    if list(out.glob("qa-run-*.json")):
+        unchanged("A qa-run report already exists: this listing's test already finished.")
+    baseline = json.loads(Path(baseline_path).read_text(encoding="utf-8"))["listings"]
+    if str(listing_id) in baseline:
+        unchanged("The baseline already contains the QA listing; use the step-6 baseline taken before it.")
+
+    plan = [
+        f"check {markers[0].name} names {listing_id} ({title!r}) and no report exists yet",
+        "check public listings now equal the step-6 baseline (QA listing not public yet)",
+        "admin login (up to 3 tries; nothing changes on a refused login), then /auth/admin/me must say admin",
+        "read the QA listing as admin: title matches, status 'submitted' (stop on 'draft'; "
+        "'approved' = skip approval), 2 rooms (bedroom 1, Bedroom 2), 2 gallery photos, single "
+        "panorama and cover present with their test colours",
+        "approve it with the version just read (the backend refuses if it changed)",
+        "customer checks as in create; every other listing unchanged",
+    ]
+    print("Plan (resume, same QA listing, nothing created or deleted):"
+          + "".join(f"\n  - {step}" for step in plan))
+
+    report = Report()
+    before = public_state(api)
+    others = {k: v for k, v in before.items() if k != str(listing_id)}
+    report.check("public listings unchanged since the step-6 baseline", others == baseline)
+    report.check("QA listing not public before approval", str(listing_id) not in before)
+    if not apply:
+        print("Nothing changed. Add --apply to approve the QA listing and run the checks.")
+        return 1 if report.failed else 0
+    if report.failed:
+        unchanged("Pre-checks failed; nothing changed.")
+
+    try:
+        api.token = login(api, "Admin", attempts=3)
+    except SystemExit as stop:
+        unchanged(str(stop))
+    status, me = api.call("GET", "/auth/admin/me", expect=(200, 403))
+    if status != 200:
+        unchanged("That account is not an admin (403). Nothing was changed; "
+                         "run the read-only staff diagnostic to find the admin account.")
+    report.check("login is an admin account", me.get("role") == "admin")
+    path = f"/staff/properties/{listing_id}"
+    _, listing = api.call("GET", path)
+    report.check("QA listing title matches the recorded title", listing["title"] == title, listing["title"])
+    if listing["title"] != title:
+        unchanged("Listing title differs from the recorded QA title; nothing changed.")
+    if listing["status"] == "draft":
+        unchanged("QA listing is still a draft (agent submit did not happen); nothing changed. Send this to Claude.")
+    _, rooms = api.call("GET", f"{path}/panoramas")
+    report.check("staff: exactly two rooms (Bedroom 1 after replacement, Bedroom 2; Living Room removed)",
+                 sorted(r["room"].lower() for r in rooms) == ["bedroom 1", "bedroom 2"], rooms)
+    _, gallery = api.call("GET", f"{path}/gallery")
+    photos = [g["id"] for g in gallery]
+    report.check("staff: exactly two gallery photos", len(photos) == 2, gallery)
+    _, single = api.call("GET", f"{path}/media/panorama")
+    report.check("staff: single panorama present and unchanged", same_colour(single, "single"))
+    _, cover = api.call("GET", f"{path}/media/cover")
+    report.check("staff: cover present and unchanged", same_colour(cover, "cover"))
+    if report.failed:
+        unchanged("The QA listing is not in the expected state; not approving. Nothing changed.")
+
+    if listing["status"] == "submitted":
+        api.call("POST", f"{path}/approve", body={"version": listing["version"]})
+        report.check("admin approved the QA listing", True)
+    else:
+        report.check(f"QA listing already {listing['status']!r}; approval skipped", listing["status"] == "approved")
+    api.token = None
+
+    after = customer_checks(api, report, listing_id, photos, before)
+    result = {"listing_id": str(listing_id), "title": title, "resumed": True,
+              "note": "agent-side steps ran in the 19:56 create run; their state was re-checked above",
+              "results": report.results, "before": before, "after": after}
+    report_path = out / f"qa-run-{time.strftime('%Y%m%d_%H%M%S')}.json"
     report_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"Saved {report_path}")
     print("\nTo remove the test listing later (needs approval; as postgres, one transaction):")
@@ -306,6 +425,11 @@ def main(argv=None):
         p.add_argument("--out", type=Path, required=True, help="Folder for reports.")
         if name == "create":
             p.add_argument("--apply", action="store_true", help="Actually create the QA listing.")
+    p = sub.add_parser("resume")
+    p.add_argument("--out", type=Path, required=True, help="Folder with the qa-listing file.")
+    p.add_argument("--listing-id", type=uuid.UUID, required=True, help="The existing QA listing.")
+    p.add_argument("--baseline", required=True, help="existing-*.json taken before the QA listing.")
+    p.add_argument("--apply", action="store_true", help="Approve the QA listing and run the checks.")
     p = sub.add_parser("compare")
     p.add_argument("before")
     p.add_argument("after")
@@ -317,6 +441,8 @@ def main(argv=None):
     api = Api(args.api)
     if args.command == "check-existing":
         return check_existing(api, args.out)
+    if args.command == "resume":
+        return resume(api, args.out, args.listing_id, args.baseline, args.apply)
     return create(api, args.out, args.apply)
 
 
