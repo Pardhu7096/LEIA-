@@ -13,27 +13,24 @@ identical to the code the 007 tests ran against. Its customer app shows room tou
 
 Database: `leia` after migration 007 (step 5, 14 Nov 19:07; history 000–007).
 
-## 0. Before anything that writes
+## 0. Run (approved 14 Nov 19:24: backup, baseline, one QA listing; no deletion)
 
-1. Fresh verified backup (restore-tested), backend may stay running:
+1. Verified backup (restore-tested), today:
    `powershell -ExecutionPolicy Bypass -File D:\LEIA-schema-audit\scripts\windows\leia-step1-backup-and-check.ps1 -DropScratchAfterVerify`
-2. Start the backend from `D:\LEIA\backend` as usual (port 8000 assumed).
+   and note its stamp (`step1-<stamp>.log` ends with `RESULT: OK`).
+2. Start the backend from `D:\LEIA\backend` as usual on `http://127.0.0.1:8000`.
+3. `git -C D:\LEIA-schema-audit pull --ff-only`, then
+   `powershell -ExecutionPolicy Bypass -File D:\LEIA-schema-audit\scripts\windows\leia-step6-functional-test.ps1 -BackupStamp <stamp>`
 
-## 1. Automated API check (`scripts/functional/room_panorama_check.py`)
+Step 6 refuses, before any change, unless: the worktree is the reviewed version; the
+backup is today's, its step-1 log says `RESULT: OK` and its SHA-256 matches; the backend
+answers on 127.0.0.1/localhost; and no QA listing was created before. It then runs the
+read-only baseline, the test (one QA listing), a second baseline and the comparison of all
+other listings, and writes `D:\LEIA-backups\step6-<time>.log`. It never deletes.
 
-Run with the backend's Python from the audit worktree:
+## 1. What the automated test does (`scripts/functional/room_panorama_check.py`)
 
-```powershell
-$PY = "D:\LEIA\backend\.venv\Scripts\python.exe"
-$QA = "D:\LEIA-schema-audit\scripts\functional\room_panorama_check.py"
-$OUT = "D:\LEIA-backups\room-panorama-test"
-
-& $PY $QA check-existing --out $OUT          # read-only: public GETs only, no login
-& $PY $QA create --out $OUT                  # prints the plan; changes nothing
-& $PY $QA create --out $OUT --apply          # APPROVAL NEEDED: creates one QA listing
-& $PY $QA check-existing --out $OUT          # second read-only snapshot
-& $PY $QA compare <first existing-*.json> <second existing-*.json> --ignore <QA listing id>
-```
+Accepts only a backend on this computer (`http://127.0.0.1` / `http://localhost`).
 
 `create --apply` asks for an agent and an admin login (passwords hidden, never stored)
 and creates **one** listing titled `[QA] Room panoramas <time>`. It uploads labelled,
@@ -66,9 +63,9 @@ run, and the existing listing compared unchanged.
 | # | Do | Expect |
 | --- | --- | --- |
 | C1 | Open an existing listing that has only a single 360° | Tour tab shows that panorama; no room buttons |
-| C2 | Open the QA listing, Tour tab | Room buttons `Bedroom 2`, `bedroom 1`; the first is shown |
+| C2 | Open the QA listing, Tour tab | Current code: room buttons `Bedroom 2`, `bedroom 1` (F2 order), first shown. With F1/F2: `Whole Home`, `Bedroom 1`, `Bedroom 2` |
 | C3 | Tap each room button | The viewer shows that room's labelled image (orange-red "BEDROOM 1 (REPLACEMENT)", purple "BEDROOM 2") |
-| C4 | Look for the single (blue "SINGLE") panorama on the QA listing | **Not reachable** (see finding F1) |
+| C4 | Look for the single (blue "SINGLE") panorama on the QA listing | With the current code (`23b25c0`): **not reachable** (F1). With the F1 fix: a "Whole Home" button, shown first |
 | C5 | Photos tab of the QA listing | Exactly two photos (Kitchen, Hall); no panoramas among them |
 | C6 | Signed out | Same as C2–C5 (public listing) |
 | C7 | After cleanup | QA listing gone; existing listings as in C1 |
@@ -96,3 +93,12 @@ Sign-in sessions and rate-limit rows created by the test logins are normal app d
 | F2 | Low | (L10) Re-uploading a room in other letter case renames it to the latest spelling, and rooms sort case-sensitively (`Bedroom 2` before `bedroom 1`). |
 | F3 | Low | The development checkout `D:\LEIA` is 11 commits behind its GitHub branch: missing there are the customer tour-URL check (`roomTours.ts`), configurable API URLs (`apiUrl.ts`) and the backend hardening on the audit branch. Testing uses what runs (`23b25c0`). |
 | F4 | Info | New single panoramas can no longer be uploaded from the agent app (rooms only); the API still accepts them. |
+
+## Decisions (14 Nov 19:24) and status
+
+| ID | Decision | Status |
+| --- | --- | --- |
+| F1 | Keep the single panorama visible as "Whole Home" next to every room | Fixed on branch `fix/room-tours-whole-home` (customer app only; no media changes); not merged |
+| F2 | Consistent room names, natural order; keep stored media and case-insensitive uniqueness | Fixed on the same branch (backend: replace keeps the first spelling; natural, case-insensitive lists); not merged. When it reaches the audit branch, `test_migration_007.py` must expect the first spelling. |
+| F3 | Audit and plan only | `docs/DEV_CHECKOUT_SYNC_PLAN.md` |
+| F4 | Deferred to a later release; single panoramas stay viewable | No change |
