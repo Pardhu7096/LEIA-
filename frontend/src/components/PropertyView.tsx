@@ -12,7 +12,7 @@ import {
 
 import { API_URL } from "../context/AuthContext";
 import ContactLEIA from "./ContactLEIA";
-import { chooseRoomTour, roomTourUrl } from "../lib/roomTours";
+import { chooseTourOption, tourOptions } from "../lib/roomTours";
 import NearbyPlaces from "./NearbyPlaces";
 import PanoramaView from "./PanoramaView";
 import PropertyGallery from "./PropertyGallery";
@@ -62,8 +62,9 @@ export default function PropertyView({ property, messages, loading, error, onAsk
       .catch(() => { if (!controller.signal.aborted) setTourError("Room tours are unavailable. Try again later."); });
     return () => controller.abort();
   }, [property.id, property.isSample]);
-  const roomTour = chooseRoomTour(roomTours, selectedRoom);
-  const tour = property.isSample ? sampleTour : roomTourUrl(API_URL, roomTour, property.tour);
+  const options = property.isSample ? [] : tourOptions(API_URL, roomTours, property.tour);
+  const activeTour = chooseTourOption(options, selectedRoom);
+  const tour = property.isSample ? sampleTour : activeTour?.url;
 
   async function ask() {
     const question = input.trim();
@@ -114,18 +115,18 @@ export default function PropertyView({ property, messages, loading, error, onAsk
               {property.isSample ? (
                 <Text style={tourStyles.notice}>Sample panorama — unrelated to this property.</Text>
               ) : null}
-              {roomTours.length > 0 ? (
+              {options.length > 1 ? (
                 <ScrollView horizontal style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, padding: 8 }}>
-                  {roomTours.map((entry) => (
-                    <Pressable key={entry.id} accessibilityRole="button" accessibilityState={{ selected: roomTour?.id === entry.id }}
+                  {options.map((entry) => (
+                    <Pressable key={entry.id} accessibilityRole="button" accessibilityState={{ selected: activeTour?.id === entry.id }}
                       onPress={() => setSelectedRoom(entry.id)} style={tourStyles.close}>
-                      <Text style={tourStyles.closeText}>{entry.room}</Text>
+                      <Text style={tourStyles.closeText}>{entry.label}</Text>
                     </Pressable>
                   ))}
                 </ScrollView>
               ) : null}
               <View style={tourStyles.viewer}>
-                <PanoramaView key={roomTour?.id ?? "legacy"} uri={tour} />
+                <PanoramaView key={activeTour?.id ?? "sample"} uri={tour} />
               </View>
               <Text style={tourStyles.help}>Drag to look around. Use + and − to zoom.</Text>
             </>

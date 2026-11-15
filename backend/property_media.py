@@ -1,3 +1,4 @@
+import re
 from io import BytesIO
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -211,6 +212,12 @@ def gallery_entries(property_id, user=None):
     return photos
 
 
+def room_order(item):
+    """Natural, case-insensitive order: Bedroom 1, bedroom 2, Bedroom 10, Hall."""
+    parts = re.split(r"(\d+)", item["room"].casefold())
+    return [(0, int(part), "") if part.isdigit() else (1, 0, part) for part in parts], str(item["id"])
+
+
 @router.get("/properties/{property_id}/panoramas")
 def public_room_panoramas(property_id: UUID, response: Response):
     response.headers.update(NO_CACHE)
@@ -223,6 +230,7 @@ def public_room_panoramas(property_id: UUID, response: Response):
                ORDER BY m.room, m.id;""",
             (property_id,),
         ).fetchall()
+    photos.sort(key=room_order)
     return [{"id": item["id"], "room": item["room"], "tour": f"/property-media/{item['id']}/tour"} for item in photos]
 
 
@@ -240,6 +248,7 @@ def staff_room_panoramas(property_id: UUID, response: Response, user=Depends(req
             "SELECT id, room FROM public.property_media WHERE property_id = %s AND kind = 'panorama_room' ORDER BY room, id;",
             (property_id,),
         ).fetchall()
+    photos.sort(key=room_order)
     return photos
 
 
@@ -259,8 +268,9 @@ async def upload_room_panorama(property_id: UUID, room: str, version: Version, r
                 (property_id, room),
             ).fetchone()
             if old:
-                cursor.execute("UPDATE public.property_media SET content = %s, room = %s WHERE id = %s;",
-                               (content, room, old["id"]))
+                # Replace the image only: the room keeps the name it was first saved with.
+                cursor.execute("UPDATE public.property_media SET content = %s WHERE id = %s;",
+                               (content, old["id"]))
                 media_id = old["id"]
             else:
                 media_id = uuid4()

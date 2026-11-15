@@ -992,3 +992,79 @@ def test_room_panoramas_database_permissions_versions_and_public_visibility(data
         assert http.get(base + "/panoramas", headers=headers(owner)).json() == []
         assert http.delete(room_url, params={"version": deleted.json()["version"]},
                            headers=headers(owner)).status_code == 404
+
+
+def test_room_panoramas_keep_first_spelling_and_sort_naturally(database, monkeypatch):
+    """F2: replacing a room keeps the name it was first saved with, and rooms are listed
+    in natural, case-insensitive order for staff and customers. One row per room."""
+    from io import BytesIO
+    from PIL import Image
+    import auth
+    import property_media
+
+    connect = database
+    for module in (property_media, auth, crm):
+        monkeypatch.setattr(module, "get_connection", connect)
+    app = FastAPI()
+    app.include_router(property_media.router)
+    app.include_router(crm.router)
+    owner, admin = staff(connect, "agent"), staff(connect, "admin")
+
+    def headers(user):
+        return {"Authorization": "Bearer " + create_access_token(user["id"])["access_token"]}
+
+    buffer = BytesIO()
+    Image.new("RGB", (1024, 512), "blue").save(buffer, format="JPEG")
+    panorama = buffer.getvalue()
+
+    with TestClient(app) as http:
+        listing = http.post("/staff/properties", json={
+            "title": "Room order test", "property_type": "flat", "locality": "MVP Colony",
+            "city": "Visakhapatnam", "price": 5000000, "area_sqft": 1200, "bedrooms": 3,
+            "listing_consent": True,
+        }, headers=headers(owner)).json()
+        base, version = f"/staff/properties/{listing['id']}", listing["version"]
+
+        def put(room):
+            nonlocal version
+            response = http.put(f"{base}/panoramas/{room}", params={"version": version},
+                                content=panorama, headers=headers(owner))
+            assert response.status_code == 200, response.text
+            version = response.json()["version"]
+            return response.json()["id"]
+
+        ids = {room: put(room) for room in ("Hall", "Bedroom 10", "bedroom 2", "Bedroom 1")}
+        expected = ["Bedroom 1", "bedroom 2", "Bedroom 10", "Hall"]
+        staff_rooms = http.get(f"{base}/panoramas", headers=headers(owner)).json()
+        assert [r["room"] for r in staff_rooms] == expected
+
+        # Replacing in other letter case and spacing keeps the id and the first spelling.
+        assert put("BEDROOM%20%202") == ids["bedroom 2"]
+        assert put("hall") == ids["Hall"]
+        staff_rooms = http.get(f"{base}/panoramas", headers=headers(owner)).json()
+        assert [r["room"] for r in staff_rooms] == expected
+        with connect() as connection:
+            rows = connection.execute(
+                "SELECT room FROM public.property_media WHERE property_id = %s AND kind = 'panorama_room'",
+                (listing["id"],)).fetchall()
+        assert sorted(r["room"] for r in rows) == sorted(expected)  # one row per room, names unchanged
+
+        submitted = http.post(f"{base}/submit", json={"version": version}, headers=headers(owner))
+        assert submitted.status_code == 200, submitted.text
+        approved = http.post(f"{base}/approve", json={"version": submitted.json()["version"]},
+                             headers=headers(admin))
+        assert approved.status_code == 200, approved.text
+        public = http.get(f"/properties/{listing['id']}/panoramas").json()
+        assert [r["room"] for r in public] == expected
+        assert [r["tour"] for r in public] == [f"/property-media/{ids[room]}/tour" for room in
+                                               ("Bedroom 1", "bedroom 2", "Bedroom 10", "Hall")]
+
+
+def test_room_order_is_natural_and_case_insensitive():
+    from uuid import uuid4
+    import property_media
+
+    rooms = ["Hall", "bedroom 10", "Bedroom 9", "Bedroom 1", "balcony", "Bedroom 2", "2nd Floor"]
+    items = [{"id": uuid4(), "room": room} for room in rooms]
+    assert [i["room"] for i in sorted(items, key=property_media.room_order)] == [
+        "2nd Floor", "balcony", "Bedroom 1", "Bedroom 2", "Bedroom 9", "bedroom 10", "Hall"]
