@@ -15,7 +15,7 @@
     python room_panorama_check.py compare BEFORE AFTER [--ignore LISTING_ID]
         Existing listings unchanged.
 
-Only http://127.0.0.1, http://localhost or a private LAN address is accepted as the API.
+Only a backend on this computer (http://127.0.0.1 or http://localhost) is accepted.
 Passwords are asked for privately and never written anywhere.
 """
 
@@ -73,13 +73,13 @@ class Api:
     def __init__(self, base):
         parsed = urllib.parse.urlparse(base)
         host = parsed.hostname or ""
-        local = host in ("localhost", "127.0.0.1")
         try:
-            local = local or ipaddress.ip_address(host).is_private
+            local = host == "localhost" or ipaddress.ip_address(host).is_loopback
         except ValueError:
-            pass
-        if parsed.scheme not in ("http", "https") or not local:
-            raise SystemExit(f"Refusing API {base!r}: only a local development backend is allowed.")
+            local = False
+        if parsed.scheme != "http" or not local or parsed.path not in ("", "/"):
+            raise SystemExit(f"Refusing API {base!r}: only a backend on this computer "
+                             "(http://127.0.0.1:<port> or http://localhost:<port>) is allowed.")
         self.base = base.rstrip("/")
         self.token = None
 
