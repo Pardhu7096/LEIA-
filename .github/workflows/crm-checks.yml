@@ -2,8 +2,10 @@ name: CRM checks
 on:
   push:
     paths: ['agent-app/**', 'backend/**', 'frontend/**', 'deploy/**', '.github/workflows/*.yml']
+  # No path filter here. These jobs are meant to be required checks on main, and a
+  # required check that never starts (for example on a docs-only pull request)
+  # leaves the pull request unmergeable.
   pull_request:
-    paths: ['agent-app/**', 'backend/**', '.github/workflows/crm-checks.yml']
 permissions:
   contents: read
 jobs:
@@ -23,7 +25,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test:forms
-      - run: node --experimental-strip-types --test tests/staffSession.test.mjs
+      - run: node --experimental-strip-types --test tests/staffSession.test.mjs tests/apiUrl.test.mjs
   crm-api:
     runs-on: ubuntu-latest
     services:
@@ -45,7 +47,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r backend/requirements-test.txt
-      - run: python -m pytest backend/tests/test_crm.py backend/tests/test_property_media.py -q
+      - run: python -m pytest backend/tests -q
 
   customer-frontend:
     runs-on: ubuntu-latest
@@ -61,4 +63,4 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npx tsc --noEmit
-      - run: node --experimental-strip-types --test tests/roomTours.test.mjs
+      - run: node --experimental-strip-types --test tests/roomTours.test.mjs tests/apiUrl.test.mjs

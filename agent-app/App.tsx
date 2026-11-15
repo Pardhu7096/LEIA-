@@ -11,16 +11,22 @@ import {
   View,
 } from "react-native";
 import PropertyWorkspace from "./src/components/propertyWorkspace";
+import { resolveApiUrl } from "./src/lib/apiUrl";
 import { createStaffSession } from "./src/lib/staffSession";
 import { styles } from "./src/styles/auth.styles";
 
-// Match the browser host so SameSite refresh cookies work across local ports.
-const API_URL =
+// Set EXPO_PUBLIC_API_URL (for example https://api.example.com) for staging and
+// production builds. In development, match the browser host so SameSite refresh
+// cookies work across local ports.
+const API_URL = resolveApiUrl(
+  process.env.EXPO_PUBLIC_API_URL,
+  __DEV__,
   Platform.OS === "web" &&
-  typeof window !== "undefined" &&
-  window.location.hostname === "localhost"
+    typeof window !== "undefined" &&
+    window.location.hostname === "localhost"
     ? "http://localhost:8000"
-    : "http://127.0.0.1:8000";
+    : "http://127.0.0.1:8000",
+);
 
 type StaffUser = {
   id: string;

@@ -1,0 +1,37 @@
+# systemd unit for the LEIA API. Install one copy per environment as
+#   /etc/systemd/system/leia-staging.service  or  leia-production.service
+# and replace ENVIRONMENT (staging|production), PORT and SERVICE_USER.
+# Settings and secrets stay in /opt/leia/ENVIRONMENT/shared/.env, never here.
+[Unit]
+Description=LEIA API (ENVIRONMENT)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=SERVICE_USER
+Group=SERVICE_USER
+WorkingDirectory=/opt/leia/ENVIRONMENT/current
+# Loopback only: Nginx is the single public entry point. Client addresses are
+# accepted from the X-Forwarded-For header only when Nginx (127.0.0.1) sends it;
+# the login and registration limits depend on this.
+ExecStart=/opt/leia/ENVIRONMENT/current/.venv/bin/uvicorn main:app --host 127.0.0.1 --port PORT --workers 2 --proxy-headers --forwarded-allow-ips 127.0.0.1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+
+# The API needs no write access to the server: media is stored in PostgreSQL.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

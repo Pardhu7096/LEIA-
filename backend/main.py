@@ -15,9 +15,10 @@ from pydantic import BaseModel, Field, ValidationError
 # Load environment variables before authentication.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-from auth import get_current_user, router as auth_router
+from auth import ALLOWED_ORIGINS, get_current_user, router as auth_router
 from crm import router as crm_router
 from database import get_connection
+from preflight import database_problems
 from rate_limits import limit_chat, limit_maps
 from nearby_places import Category, router as nearby_router, shortest_nearby_walk
 from property_media import router as media_router
@@ -42,12 +43,7 @@ app.include_router(nearby_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-        "http://localhost:8082",
-        "http://127.0.0.1:8082",
-    ],
+    allow_origins=sorted(ALLOWED_ORIGINS),
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     allow_credentials=True,
@@ -323,6 +319,18 @@ def generate_chat_reply(request: ChatRequest) -> dict:
 @app.get("/health")
 def health():
     return {"status": "LEIA backend is running"}
+
+
+@app.get("/health/ready")
+def ready(response: Response):
+    """Deployment and monitoring probe: the database is reachable and migrated."""
+    response.headers["Cache-Control"] = "no-store"
+    problems = database_problems()
+    if problems:
+        # Table and migration names only; no connection details or credentials.
+        print("Readiness check failed:", " ".join(problems))
+        raise HTTPException(status_code=503, detail="LEIA backend is not ready.")
+    return {"status": "ready"}
 
 
 @app.get("/properties")

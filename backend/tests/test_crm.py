@@ -401,7 +401,7 @@ def test_staff_refresh_rotates_and_keeps_customer_session_separate(client, monke
     with connect() as connection:
         connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
         connection.execute("""
-            CREATE TABLE auth_sessions (
+            CREATE TABLE IF NOT EXISTS auth_sessions (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 user_id UUID NOT NULL REFERENCES users(id),
                 refresh_token_hash TEXT NOT NULL UNIQUE,
