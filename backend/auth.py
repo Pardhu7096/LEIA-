@@ -42,6 +42,7 @@ ALLOWED_ORIGINS = {
     "http://127.0.0.1:8082",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "https://leia-backend-staging.onrender.com",
 }
 
 DUMMY_HASH = password_hasher.hash("unused-dummy-password")
