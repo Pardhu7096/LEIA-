@@ -2,6 +2,16 @@ import { useEffect, useRef, useState } from "react";
 
 import { API_URL, useAuth } from "../context/AuthContext";
 
+type FacingDirection =
+  | "north"
+  | "northeast"
+  | "east"
+  | "southeast"
+  | "south"
+  | "southwest"
+  | "west"
+  | "northwest";
+
 type ApiProperty = {
   id: string | number;
   title: string;
@@ -12,6 +22,7 @@ type ApiProperty = {
   tour?: string | null;
   area_sqft: number;
   property_type: string;
+  facing?: FacingDirection | null;
 };
 
 export type Property = {
@@ -20,6 +31,7 @@ export type Property = {
   location: string;
   price: string;
   details: string;
+  facing?: FacingDirection | null;
   isSample: boolean;
   image: string | null;
   tour: string | null;
@@ -52,11 +64,33 @@ type ConversationDetail = {
   messages: SavedMessage[];
 };
 
+const FACING_LABELS: Record<FacingDirection, string> = {
+  north: "North facing",
+  northeast: "Northeast facing",
+  east: "East facing",
+  southeast: "Southeast facing",
+  south: "South facing",
+  southwest: "Southwest facing",
+  west: "West facing",
+  northwest: "Northwest facing",
+};
+
+function formatFacing(
+  facing?: FacingDirection | null
+): string {
+  return facing && Object.prototype.hasOwnProperty.call(
+    FACING_LABELS, facing
+  )
+    ? FACING_LABELS[facing]
+    : "Facing not specified";
+}
+
 function makeCards(listings: ApiProperty[]): Property[] {
   return listings.map((property) => ({
     id: property.id,
     title: property.title,
     location: property.location,
+    facing: property.facing ?? null,
     price: `₹${property.price.toLocaleString("en-IN")}`,
     details: [
       property.property_type !== "plot" && property.bedrooms !== null
@@ -66,6 +100,7 @@ function makeCards(listings: ApiProperty[]): Property[] {
       property.property_type === "independent_house"
         ? "Independent house"
         : property.property_type === "plot" ? "Plot" : "Flat",
+      formatFacing(property.facing),
     ].filter(Boolean).join(" • "),
     image: property.image?.startsWith("/property-media/")
       ? `${API_URL}${property.image}`

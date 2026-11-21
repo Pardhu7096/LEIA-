@@ -11,6 +11,12 @@ Answer = Literal["unknown", "yes", "no", "not_applicable"]
 Source = Literal["unknown", "observed", "owner_reported", "document_checked"]
 
 
+FacingDirection = Literal[
+    "north", "northeast", "east", "southeast",
+    "south", "southwest", "west", "northwest",
+]
+
+
 class PropertyDraft(BaseModel):
     model_config = ConfigDict(
         extra="forbid", str_strip_whitespace=True, allow_inf_nan=False
@@ -80,6 +86,7 @@ class PropertyDraft(BaseModel):
     owner_phone: str | None = Field(default=None, max_length=30)
     listing_consent: bool = False
     agent_notes: str | None = Field(default=None, max_length=10000)
+    facing: FacingDirection | None = None
 
     @model_validator(mode="after")
     def validate_coordinates(self):

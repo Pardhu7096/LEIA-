@@ -18,6 +18,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from auth import get_current_user, router as auth_router
 from crm import router as crm_router
 from database import get_connection
+from property_models import FacingDirection
 from rate_limits import limit_chat, limit_maps
 from nearby_places import Category, router as nearby_router, shortest_nearby_walk
 from property_media import router as media_router
@@ -62,6 +63,7 @@ class SearchFilters(BaseModel):
     max_price: int | None = Field(default=None, ge=0)
     location: str | None = Field(default=None, max_length=100)
     property_type: Literal["flat", "independent_house", "plot"] | None = None
+    facing: FacingDirection | None = None
 
 
 class SearchRequirements(SearchFilters):
@@ -79,7 +81,7 @@ class ChatRequest(BaseModel):
 RESET_REPLY = "Let’s start a fresh search. What location and budget do you have in mind?"
 NO_MATCHES_REPLY = (
     "No available listings match those requirements. "
-    "I’ve kept your search filters. Would you like to change the budget or location?"
+    "I’ve kept your search filters. Would you like to change the budget, location, or facing?"
 )
 TEMPLE_WALK_QUESTION = re.compile(
     r"\b(?:how far|walking (?:distance|time)|how long (?:is|to walk|does it take to walk))\b"
@@ -95,6 +97,7 @@ NEARBY_CATEGORIES: dict[Category, str] = {
     "bus_stops": r"\bbus (?:stops?|stations?)\b",
 }
 PROPERTY_FACTS = (
+    ("facing", r"\b(?:facing|faces?|direction)\b", "Facing"),
     ("area", r"\b(?:area|size|how (?:big|large)|how much space|sq\.?\s*ft|square feet)\b", "Area"),
     ("price", r"\b(?:price|cost|how much|asking price)\b", "Asking price"),
     ("bedrooms", r"\b(?:bedrooms?|bhk)\b", "Bedrooms"),
@@ -118,6 +121,7 @@ Return ONLY valid JSON without Markdown or explanations:
   "max_price": null,
   "location": null,
   "property_type": null,
+  "facing": null,
   "question": null
 }
 
@@ -142,13 +146,26 @@ Rules:
 - A new maximum without an explicit minimum clears min_price.
 - A new minimum without an explicit maximum clears max_price.
 - "Increase my budget to 90 lakh" sets max_price=9000000,
-  preserving location, bedrooms, and property_type.
+  preserving location, bedrooms, property_type, and facing.
 - "Reduce it to 50 lakh" updates max_price=5000000 when an existing
   maximum provides that context. Otherwise clarify.
 - 2 BHK means bedrooms=2.
 - Apartment or flat means property_type="flat".
 - Independent house means property_type="independent_house".
 - Plot means property_type="plot".
+- Facing must be one of: north, northeast, east, southeast,
+  south, southwest, west, northwest, or null.
+- Normalize north-east and north east to northeast.
+- Normalize south-east and south east to southeast.
+- Normalize south-west and south west to southwest.
+- Normalize north-west and north west to northwest.
+- "East-facing house" sets facing="east".
+- "Change facing to west" sets facing="west",
+  preserving all unrelated filters.
+- Preserve current facing when updating unrelated filters.
+- "Any facing" or "No facing preference" clears facing.
+- Multiple alternative facing directions require clarification.
+- Never infer facing from a locality, address, or property type.
 - Extract any requested locality, including places absent from inventory.
 - Normalize clear spelling variations of Gajuwaka and Lankelapalem.
 - Normalize Vizag to Visakhapatnam. Preserve a citywide request as a city name.
@@ -165,7 +182,7 @@ Rules:
 - If a request refers to previous cards or missing facts, clarify.
 - Ambiguous money units require clarification.
 - Supported filters: bedrooms, price range, one locality,
-  and flat, independent house, or plot.
+  one facing direction, and property type (flat, independent house, or plot).
 - Unsupported requirements such as rent, amenities, floor area,
   alternative localities, or excluded localities require clarification.
 - Never silently ignore unsupported requirements.
@@ -185,6 +202,7 @@ def filter_properties(filters: SearchFilters) -> list[dict]:
                 SELECT p.id::text AS id, title, concat_ws(', ', locality, city) AS location,
                     price, bedrooms, area_sqft::double precision AS area_sqft,
                     p.property_type,
+                    p.facing,
                     '/property-media/' || coalesce(gallery_cover.id, cover.id) AS image,
                     '/property-media/' || panorama.id || '/tour' AS tour
                 FROM public.properties AS p
@@ -203,6 +221,7 @@ def filter_properties(filters: SearchFilters) -> list[dict]:
                         OR lower(city) = lower(%(location)s)
                         OR lower(concat_ws(', ', locality, city)) = lower(%(location)s))
                     AND (%(property_type)s::text IS NULL OR property_type = %(property_type)s)
+                    AND (%(facing)s::text IS NULL OR p.facing = %(facing)s)
                 ORDER BY reviewed_at DESC NULLS LAST, p.id
                 LIMIT 30
                 """,
@@ -265,10 +284,35 @@ def generate_chat_reply(request: ChatRequest) -> dict:
                 "filters": previous_filters,
             }
 
+        # Preserve omitted preferences while allowing explicit nulls
+        # to clear individual filters.
+        filter_updates = requirements.model_dump(
+            exclude={"intent", "question"},
+            exclude_unset=True,
+        )
+
+        # Preserve the existing one-sided budget update semantics.
         if (
-            requirements.min_price is not None
-            and requirements.max_price is not None
-            and requirements.min_price > requirements.max_price
+            filter_updates.get("max_price") is not None
+            and "min_price" not in filter_updates
+        ):
+            filter_updates["min_price"] = None
+
+        if (
+            filter_updates.get("min_price") is not None
+            and "max_price" not in filter_updates
+        ):
+            filter_updates["max_price"] = None
+
+        updated_filters = SearchFilters.model_validate({
+            **previous_filters,
+            **filter_updates,
+        })
+
+        if (
+            updated_filters.min_price is not None
+            and updated_filters.max_price is not None
+            and updated_filters.min_price > updated_filters.max_price
         ):
             return {
                 "reply": (
@@ -278,10 +322,6 @@ def generate_chat_reply(request: ChatRequest) -> dict:
                 "properties": [],
                 "filters": previous_filters,
             }
-
-        updated_filters = SearchFilters.model_validate(
-            requirements.model_dump(exclude={"intent", "question"})
-        )
         matches = filter_properties(updated_filters)
 
         if not matches:
@@ -493,7 +533,7 @@ def selected_listing_reply(cursor, property_id: UUID, message: str, user: dict) 
         """
         SELECT title, latitude, longitude, area_sqft, price, bedrooms, bathrooms,
             concat_ws(', ', nullif(locality, ''), nullif(city, '')) AS location,
-            property_type, car_parking_spaces, maintenance_monthly
+            property_type, car_parking_spaces, maintenance_monthly, facing
         FROM public.properties
         WHERE id = %s AND status = 'approved' AND availability = 'available';
         """,
@@ -518,9 +558,63 @@ def selected_listing_reply(cursor, property_id: UUID, message: str, user: dict) 
         )
         return reply, reply
 
+    direction_pattern = (
+        r"\b(north[\s-]?east|north[\s-]?west|"
+        r"south[\s-]?east|south[\s-]?west|"
+        r"north|east|south|west)\b"
+    )
+
+    facing_question = re.search(
+        r"\b(?:facing|faces?|direction)\b", message, re.I
+    )
+
+    directions = {
+        re.sub(r"[\s-]", "", value.lower())
+        for value in re.findall(direction_pattern, message, re.I)
+    }
+
+    if facing_question and directions:
+        recorded = listing["facing"]
+
+        if not recorded:
+            reply = (
+                f"The facing direction of {listing['title']} "
+                "has not been specified. Please confirm with the agent."
+            )
+        elif len(directions) != 1:
+            reply = (
+                f"{listing['title']} is recorded as "
+                f"{recorded}-facing."
+            )
+        elif re.search(r"\b(?:not|isn't|doesn't|never)\b", message, re.I):
+            reply = (
+                f"The recorded facing direction of "
+                f"{listing['title']} is {recorded}."
+            )
+        elif recorded in directions:
+            reply = (
+                f"{listing['title']} is recorded as "
+                f"{recorded}-facing."
+            )
+        else:
+            requested_direction = next(iter(directions))
+            reply = (
+                f"{listing['title']} is recorded as "
+                f"{recorded}-facing, not {requested_direction}-facing."
+            )
+
+        other_facts = [
+            field for field, pattern, _ in PROPERTY_FACTS
+            if field != "facing" and re.search(pattern, message, re.I)
+        ]
+
+        if not other_facts:
+            return reply, reply
+
     area = listing["area_sqft"]
     facts = {
         **listing,
+        "facing": listing["facing"].capitalize() if listing["facing"] else None,
         "area": f"{area:,.2f}".rstrip("0").rstrip(".") + " sq ft" if area is not None else None,
         "property_type": listing["property_type"].replace("_", " ").capitalize(),
     }
@@ -535,7 +629,7 @@ def selected_listing_reply(cursor, property_id: UUID, message: str, user: dict) 
         reply = (
             f"I don’t have that detail for {listing['title']}. "
             "You can ask about its price, size, bedrooms, bathrooms, location, parking, "
-            "maintenance, or nearby places."
+            "maintenance, facing direction, or nearby places."
         )
         return reply, reply
 

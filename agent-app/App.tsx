@@ -16,11 +16,12 @@ import { styles } from "./src/styles/auth.styles";
 
 // Match the browser host so SameSite refresh cookies work across local ports.
 const API_URL =
-  Platform.OS === "web" &&
+  process.env.EXPO_PUBLIC_API_URL ||
+  (Platform.OS === "web" &&
   typeof window !== "undefined" &&
   window.location.hostname === "localhost"
     ? "http://localhost:8000"
-    : "http://127.0.0.1:8000";
+    : "http://127.0.0.1:8000");
 
 type StaffUser = {
   id: string;

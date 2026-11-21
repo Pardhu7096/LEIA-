@@ -64,6 +64,21 @@ export const sections: { title: string; fields: Field[] }[] = [
       { key: "price", label: "Price in rupees (no commas)", ...money, min: 1 },
       { key: "bedrooms", label: "Bedrooms", kind: "integer", min: 0, max: 20 },
       {
+        key: "facing",
+        label: "Facing",
+        choices: [
+          ["", "Unknown"],
+          ["north", "North"],
+          ["northeast", "Northeast"],
+          ["east", "East"],
+          ["southeast", "Southeast"],
+          ["south", "South"],
+          ["southwest", "Southwest"],
+          ["west", "West"],
+          ["northwest", "Northwest"],
+        ],
+      },
+      {
         key: "bathrooms",
         label: "Bathrooms",
         kind: "integer",
@@ -278,7 +293,11 @@ export const initialValues = () =>
   Object.fromEntries(
     fields.map((field) => [
       field.key,
-      field.key === "property_type" ? "flat" : field.choices ? "unknown" : "",
+      field.key === "property_type"
+        ? "flat"
+        : field.choices && !field.choices.some(([value]) => value === "")
+          ? "unknown"
+          : "",
     ]),
   );
 
@@ -290,7 +309,9 @@ export function buildPayload(values: Record<string, string>, consent: boolean) {
     const value = (values[field.key] || "").trim();
     payload[field.key] = value || null;
     if (field.maxLength && value.length > field.maxLength) {
-      throw new Error(`${field.label} must be ${field.maxLength} characters or fewer.`);
+      throw new Error(
+        `${field.label} must be ${field.maxLength} characters or fewer.`,
+      );
     }
     if (field.choices && !field.choices.some((choice) => choice[0] === value)) {
       throw new Error(`Choose a valid value for ${field.label}.`);
@@ -334,11 +355,19 @@ export function buildPayload(values: Record<string, string>, consent: boolean) {
     }
   }
   if (!payload.title) throw new Error("Enter a property title.");
-  if (payload.owner_phone && !/^\+?[0-9][0-9 ()-]{6,28}$/.test(String(payload.owner_phone))) {
+  if (
+    payload.owner_phone &&
+    !/^\+?[0-9][0-9 ()-]{6,28}$/.test(String(payload.owner_phone))
+  ) {
     throw new Error("Enter a valid owner phone number.");
   }
-  if (payload.listing_consent && (!payload.owner_name || !payload.owner_phone)) {
-    throw new Error("Record the owner name and phone before confirming listing consent.");
+  if (
+    payload.listing_consent &&
+    (!payload.owner_name || !payload.owner_phone)
+  ) {
+    throw new Error(
+      "Record the owner name and phone before confirming listing consent.",
+    );
   }
   if (
     Boolean(payload.latitude !== null) !== Boolean(payload.longitude !== null)

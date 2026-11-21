@@ -8,8 +8,9 @@ import {
 } from "react";
 
 
-export const API_URL = "http://localhost:8000";
-
+export const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ||
+  "https://leia-backend-staging.onrender.com";
 type TokenData = {
   access_token: string;
 };

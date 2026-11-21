@@ -78,8 +78,8 @@ def database():
             name = connection.execute("SELECT current_database() AS name").fetchone()[
                 "name"
             ]
-            if name not in {"postgres", "leia_test", "crm_test"}:
-                pytest.fail("Use a disposable database named leia_test or crm_test.")
+            if name not in {"leia_test", "crm_test", "leia_facing_regression_test", "leia_facing_r4_test", "leia_facing_r5_test", "leia_facing_r7_test"}:
+                pytest.fail("Use an explicitly allowed disposable test database.")
             # A guard table prevents overwriting any database that already has users.
             exists = connection.execute(
                 "SELECT to_regclass('public.users') AS table_name"
@@ -172,6 +172,7 @@ def test_complete_edit_and_permissions(client):
         json={
             "title": "Madhura Apartments",
             "property_type": "flat",
+            "facing": "northeast",
             "price": 7500000,
             "area_sqft": "1200.25",
             "owner_name": "Private owner",
@@ -187,6 +188,13 @@ def test_complete_edit_and_permissions(client):
     assert detail.status_code == 200, detail.text
     assert detail.headers["cache-control"] == "no-store"
     record = detail.json()
+    assert record["facing"] == "northeast"
+    with connect() as connection:
+        stored = connection.execute(
+            "SELECT facing FROM properties WHERE id = %s",
+            (property_id,),
+        ).fetchone()
+        assert stored["facing"] == "northeast"
     assert record["parking_type"] == "unknown"
     assert record["car_parking_spaces"] is None
     assert record["area_sqft"] == "1200.25"
@@ -205,6 +213,7 @@ def test_complete_edit_and_permissions(client):
         json={
             **editable,
             "version": record["version"],
+            "facing": "southwest",
             "car_parking_spaces": 1,
             "bike_parking_spaces": 0,
             "parking_type": "covered",
@@ -234,6 +243,28 @@ def test_complete_edit_and_permissions(client):
         and saved["agent_notes"] == "Do not publish"
     )
     assert saved["area_sqft"] == "1200.25"
+    assert saved["facing"] == "southwest"
+
+    with connect() as connection:
+        stored = connection.execute(
+            "SELECT facing FROM properties WHERE id = %s",
+            (property_id,),
+        ).fetchone()
+        assert stored["facing"] == "southwest"
+
+    invalid = http.put(
+        endpoint,
+        json={
+            **{key: saved[key] for key in PropertyDraft.model_fields},
+            "version": saved["version"],
+            "facing": "invalid",
+        },
+    )
+    assert invalid.status_code == 422
+
+    unchanged = http.get(endpoint).json()
+    assert unchanged["facing"] == "southwest"
+    assert unchanged["version"] == saved["version"]
     assert saved["water_tanker"] == "unknown" and saved["water_monthly_charge"] == 0
     assert (
         saved["water_source"] == "owner_reported"
@@ -284,6 +315,40 @@ def test_complete_edit_and_permissions(client):
         ).status_code
         == 409
     )
+    # Permission checks above have completed.
+    # A submitted property must not be edited, so clearing
+    # is tested on a separate draft.
+    as_user(owner)
+    clearing_draft = http.post(
+        "/staff/properties",
+        json={
+            "title": "Facing clearing test",
+            "property_type": "flat",
+            "facing": "east",
+            "price": 6500000,
+            "area_sqft": "1100.25",
+        },
+    )
+    assert clearing_draft.status_code == 201
+    clear_path = f"/staff/properties/{clearing_draft.json()['id']}"
+    clear_record = http.get(clear_path).json()
+    assert clear_record["facing"] == "east"
+
+    cleared = http.put(
+        clear_path,
+        json={
+            **{key: clear_record[key] for key in PropertyDraft.model_fields},
+            "version": clear_record["version"],
+            "facing": None,
+        },
+    )
+    assert cleared.status_code == 200, cleared.text
+
+    cleared_record = http.get(clear_path).json()
+    assert cleared_record["facing"] is None
+    assert cleared_record["price"] == clear_record["price"]
+    assert cleared_record["area_sqft"] == clear_record["area_sqft"]
+
     app.dependency_overrides.clear()
     assert http.get(endpoint).status_code == 401
     assert (
@@ -400,15 +465,6 @@ def test_staff_refresh_rotates_and_keeps_customer_session_separate(client, monke
     password = "test-password-only"
     with connect() as connection:
         connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
-        connection.execute("""
-            CREATE TABLE auth_sessions (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                user_id UUID NOT NULL REFERENCES users(id),
-                refresh_token_hash TEXT NOT NULL UNIQUE,
-                expires_at TIMESTAMPTZ NOT NULL,
-                revoked_at TIMESTAMPTZ
-            )
-        """)
         connection.execute(
             "UPDATE users SET password_hash = %s WHERE id IN (%s, %s)",
             (auth.password_hasher.hash(password), agent["id"], customer["id"]),
@@ -489,6 +545,7 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
         payload = {
             "title": "Test Madhura Apartments",
             "property_type": "flat",
+            "facing": "southwest",
             "locality": "Madhurawada",
             "city": "Visakhapatnam",
             "price": 7500000,
@@ -622,11 +679,25 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
         assert approved.status_code == 200, approved.text
         assert approved.json()["status"] == "approved"
 
+        published_record = http.get(
+            path, headers=headers(admin)
+        ).json()
+        assert published_record["facing"] == "southwest"
+
+        with connect() as connection:
+            stored = connection.execute(
+                "SELECT facing, status FROM properties WHERE id = %s",
+                (listing["id"],),
+            ).fetchone()
+            assert stored["facing"] == "southwest"
+            assert stored["status"] == "approved"
+
         cards = results()
         assert cards == [{
             "id": listing["id"],
             "title": payload["title"],
             "property_type": "flat",
+            "facing": "southwest",
             "location": "Madhurawada, Visakhapatnam",
             "price": 7500000,
             "area_sqft": 1130,
@@ -790,6 +861,7 @@ def test_selected_property_facts_and_walk_use_only_that_listing(monkeypatch):
         "title": "SS Castle", "latitude": 17.7, "longitude": 83.3,
         "area_sqft": 2200, "price": 8900000, "bedrooms": 3, "bathrooms": None,
         "location": "Madhurawada", "property_type": "independent_house",
+        "facing": "northeast",
         "car_parking_spaces": 0, "maintenance_monthly": None,
     }
     connection = MagicMock()
@@ -820,6 +892,18 @@ def test_selected_property_facts_and_walk_use_only_that_listing(monkeypatch):
             return response.json()["reply"]
 
         assert "Area: 2,200 sq ft" in ask("How big is it?")
+        assert "Facing: Northeast" in ask("Which direction does this house face?")
+        assert "northeast-facing" in ask("Is this house northeast-facing?")
+        assert "not east-facing" in ask("Is this house east-facing?")
+        assert "northeast-facing" in ask("Is this house north-east facing?")
+        assert "Facing: Not listed" in ask(
+            "Which direction does this house face?",
+            {**listing, "facing": None},
+        )
+        assert "has not been specified" in ask(
+            "Is this house north-facing?",
+            {**listing, "facing": None},
+        )
         assert "Bathrooms: Not listed" in ask("How many bathrooms does it have?")
         assert "Car parking spaces: 0" in ask("Does it have parking?")
         assert "I don’t have that detail for SS Castle" in ask("Does it have a balcony?")
@@ -923,3 +1007,536 @@ def test_paid_routes_reject_before_external_or_database_work(monkeypatch):
         response = http.get(f"/properties/{uuid4()}/nearby?category=schools")
         assert response.status_code == 429
         assert response.headers["retry-after"] == "60"
+
+@pytest.fixture(scope="module")
+def facing_search_records(database):
+    connect = database
+    owner = staff(connect, "agent")
+
+    directions = (
+        "north", "northeast", "east", "southeast",
+        "south", "southwest", "west", "northwest",
+    )
+
+    city = f"FacingTest-{uuid4().hex}"
+    records = {}
+
+    def insert(key, facing, status="approved",
+               availability="available", price=6500000,
+               property_type="flat", bedrooms=3,
+               locality="TestLocality"):
+        property_id = uuid4()
+
+        with connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO properties (
+                    id, created_by, title, property_type,
+                    facing, price, bedrooms, area_sqft,
+                    locality, city, status, availability,
+                    reviewed_at
+                )
+                VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, 1500,
+                    %s, %s, %s, %s,
+                    CURRENT_TIMESTAMP
+                )
+                """,
+                (
+                    property_id, owner["id"],
+                    f"Facing test {key}", property_type,
+                    facing, price, bedrooms,
+                    locality, city, status, availability,
+                ),
+            )
+
+        records[key] = str(property_id)
+
+    for direction in directions:
+        insert(direction, direction)
+
+    insert("unspecified", None)
+    insert("draft", "north", status="draft")
+    insert("submitted", "north", status="submitted")
+    insert("rejected", "north", status="rejected")
+    insert("archived", "north", status="archived")
+    insert("sold", "north", availability="sold")
+    insert("withdrawn", "north", availability="withdrawn")
+
+    insert(
+        "expensive_north", "north",
+        price=9500000,
+        locality="PremiumLocality",
+        property_type="independent_house",
+        bedrooms=4,
+    )
+
+    yield city, records
+
+
+@pytest.mark.parametrize(
+    "direction",
+    [
+        "north", "northeast", "east", "southeast",
+        "south", "southwest", "west", "northwest",
+    ],
+)
+def test_facing_search_integration(
+    database, facing_search_records, monkeypatch, direction
+):
+    import main
+
+    monkeypatch.setattr(main, "get_connection", database)
+
+    city, records = facing_search_records
+
+    with TestClient(main.app) as http:
+        response = http.get(
+            "/properties",
+            params={"location": city, "facing": direction},
+        )
+
+    assert response.status_code == 200, response.text
+
+    cards = response.json()["properties"]
+    expected = {records[direction]}
+
+    if direction == "north":
+        expected.add(records["expensive_north"])
+
+    assert {card["id"] for card in cards} == expected
+    assert all(card["facing"] == direction for card in cards)
+
+
+@pytest.mark.parametrize(
+    "extra_filters, expected_keys",
+    [
+        (
+            {"facing": "north", "max_price": 8000000},
+            ["north"],
+        ),
+        (
+            {"facing": "north", "min_price": 8000000},
+            ["expensive_north"],
+        ),
+        (
+            {"facing": "north", "property_type": "flat"},
+            ["north"],
+        ),
+        (
+            {"facing": "north",
+             "property_type": "independent_house"},
+            ["expensive_north"],
+        ),
+        (
+            {"facing": "north", "bedrooms": 3},
+            ["north"],
+        ),
+        (
+            {"facing": "north", "bedrooms": 4},
+            ["expensive_north"],
+        ),
+        (
+            {"facing": "east", "max_price": 5000000},
+            [],
+        ),
+        (
+            {"facing": "north", "property_type": "plot"},
+            [],
+        ),
+        (
+            {
+                "facing": "north",
+                "bedrooms": 3,
+                "max_price": 8000000,
+                "property_type": "flat",
+            },
+            ["north"],
+        ),
+        (
+            {},
+            [
+                "north", "northeast", "east", "southeast",
+                "south", "southwest", "west", "northwest",
+                "unspecified", "expensive_north",
+            ],
+        ),
+    ],
+)
+def test_combined_facing_search_filters(
+    database, facing_search_records,
+    monkeypatch, extra_filters, expected_keys
+):
+    import main
+
+    monkeypatch.setattr(main, "get_connection", database)
+
+    city, records = facing_search_records
+
+    with TestClient(main.app) as http:
+        response = http.get(
+            "/properties",
+            params={"location": city, **extra_filters},
+        )
+
+    assert response.status_code == 200, response.text
+
+    cards = response.json()["properties"]
+
+    assert {card["id"] for card in cards} == {
+        records[key] for key in expected_keys
+    }
+
+    if "unspecified" in expected_keys:
+        unknown = next(
+            card for card in cards
+            if card["id"] == records["unspecified"]
+        )
+        assert unknown["facing"] is None
+
+
+@pytest.mark.parametrize(
+    "direction",
+    ["invalid", "unknown", "north-east", "East", "N"],
+)
+def test_invalid_facing_search_request(
+    database, monkeypatch, direction
+):
+    import main
+
+    def forbidden_connection():
+        pytest.fail("Invalid Facing reached the database")
+
+    monkeypatch.setattr(
+        main, "get_connection", forbidden_connection
+    )
+
+    with TestClient(main.app) as http:
+        response = http.get(
+            "/properties", params={"facing": direction}
+        )
+
+    assert response.status_code == 422, response.text
+
+
+
+@pytest.fixture
+def saved_chat_setup(database, facing_search_records, monkeypatch):
+    import json
+    import main
+    import auth
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(main, "get_connection", database)
+    monkeypatch.setattr(auth, "get_connection", database)
+
+    # Rate limiting has independent regression coverage.
+    monkeypatch.setattr(main, "limit_chat", lambda user: None)
+
+    customer = staff(database, "customer")
+    stranger = staff(database, "customer")
+
+    def headers(user):
+        token = create_access_token(user["id"])["access_token"]
+        return {"Authorization": f"Bearer {token}"}
+
+    ai = Mock()
+    monkeypatch.setattr(
+        main.client.chat.completions, "create", ai
+    )
+
+    def respond(payload):
+        content = (
+            payload if isinstance(payload, str)
+            else json.dumps(payload)
+        )
+
+        ai.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=content)
+                )
+            ]
+        )
+
+    city, records = facing_search_records
+
+    with TestClient(main.app) as http:
+        owner_headers = headers(customer)
+        other_headers = headers(stranger)
+
+        created = http.post(
+            "/conversations",
+            headers=owner_headers,
+        )
+        assert created.status_code in (200, 201), created.text
+
+        conversation_id = created.json()["id"]
+
+        yield SimpleNamespace(
+            main=main,
+            http=http,
+            connect=database,
+            headers=owner_headers,
+            other_headers=other_headers,
+            conversation_id=conversation_id,
+            path=f"/conversations/{conversation_id}",
+            ai=ai,
+            respond=respond,
+            city=city,
+            records=records,
+        )
+
+
+def send_saved_chat(ctx, message, payload):
+    import json
+
+    ctx.respond(payload)
+
+    response = ctx.http.post(
+        "/chat",
+        headers=ctx.headers,
+        json={
+            "message": message,
+            "conversation_id": ctx.conversation_id,
+
+            # Client-supplied filters must not override saved filters.
+            "filters": {"facing": "south"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    result = response.json()
+
+    reopened = ctx.http.get(
+        ctx.path, headers=ctx.headers
+    )
+    assert reopened.status_code == 200, reopened.text
+    saved = reopened.json()
+
+    assert saved["filters"] == result["filters"]
+    assert saved["messages"][-2]["role"] == "user"
+    assert saved["messages"][-2]["content"] == message
+    assert saved["messages"][-1]["role"] == "assistant"
+    assert saved["messages"][-1]["properties"] == result["properties"]
+
+    with ctx.connect() as connection:
+        stored = connection.execute(
+            "SELECT filters FROM conversations WHERE id = %s",
+            (ctx.conversation_id,),
+        ).fetchone()
+
+    assert stored["filters"] == result["filters"]
+
+    ai_input = json.loads(
+        ctx.ai.call_args.kwargs["messages"][-1]["content"]
+    )
+
+    return result, ai_input
+
+
+def seed_saved_chat(ctx):
+    result, ai_input = send_saved_chat(
+        ctx,
+        "Find northeast facing flats under 80 lakh",
+        {
+            "intent": "search",
+            "location": ctx.city,
+            "bedrooms": 3,
+            "property_type": "flat",
+            "max_price": 8000000,
+            "facing": "northeast",
+        },
+    )
+
+    assert ai_input["current_filters"] == (
+        ctx.main.SearchFilters().model_dump()
+    )
+
+    assert {
+        row["id"] for row in result["properties"]
+    } == {ctx.records["northeast"]}
+
+    return result["filters"]
+
+
+def test_saved_facing_conversation_multiturn(saved_chat_setup):
+    ctx = saved_chat_setup
+    previous = seed_saved_chat(ctx)
+
+    result, ai_input = send_saved_chat(
+        ctx,
+        "Increase budget to 1 crore",
+        {"intent": "search", "max_price": 10000000},
+    )
+
+    assert ai_input["current_filters"] == previous
+    expected = {**previous, "max_price": 10000000}
+    assert result["filters"] == expected
+    assert {
+        row["id"] for row in result["properties"]
+    } == {ctx.records["northeast"]}
+
+    result, ai_input = send_saved_chat(
+        ctx,
+        "Change facing to east",
+        {"intent": "search", "facing": "east"},
+    )
+
+    assert ai_input["current_filters"] == expected
+    expected["facing"] = "east"
+    assert result["filters"] == expected
+
+    assert {
+        row["id"] for row in result["properties"]
+    } == {ctx.records["east"]}
+
+    result, ai_input = send_saved_chat(
+        ctx,
+        "Any facing is fine",
+        {"intent": "search", "facing": None},
+    )
+
+    assert ai_input["current_filters"] == expected
+    expected["facing"] = None
+    assert result["filters"] == expected
+
+    assert {
+        row["id"] for row in result["properties"]
+    } == {
+        ctx.records[key]
+        for key in (
+            "north", "northeast", "east", "southeast",
+            "south", "southwest", "west", "northwest",
+            "unspecified",
+        )
+    }
+
+
+def test_saved_facing_conversation_no_matches(saved_chat_setup):
+    ctx = saved_chat_setup
+    previous = seed_saved_chat(ctx)
+
+    result, _ = send_saved_chat(
+        ctx,
+        "Reduce budget to 50 lakh",
+        {"intent": "search", "max_price": 5000000},
+    )
+
+    assert result["properties"] == []
+    assert result["reply"] == ctx.main.NO_MATCHES_REPLY
+    assert result["filters"] == {
+        **previous, "max_price": 5000000
+    }
+
+
+def test_saved_facing_conversation_clarify(saved_chat_setup):
+    ctx = saved_chat_setup
+    previous = seed_saved_chat(ctx)
+
+    result, _ = send_saved_chat(
+        ctx,
+        "East or north facing",
+        {
+            "intent": "clarify",
+            "question": "Which direction do you prefer?",
+        },
+    )
+
+    assert result["filters"] == previous
+    assert result["properties"] == []
+    assert result["reply"] == "Which direction do you prefer?"
+
+
+def test_saved_facing_conversation_reset(saved_chat_setup):
+    ctx = saved_chat_setup
+    seed_saved_chat(ctx)
+
+    result, _ = send_saved_chat(
+        ctx,
+        "Start over",
+        {"intent": "reset"},
+    )
+
+    assert result["filters"] == (
+        ctx.main.SearchFilters().model_dump()
+    )
+    assert result["properties"] == []
+
+
+@pytest.mark.parametrize(
+    "invalid_response",
+    [
+        "not valid JSON",
+        '{"intent":"search","facing":"invalid"}',
+    ],
+)
+def test_saved_facing_conversation_invalid_response_rollback(
+    saved_chat_setup, invalid_response
+):
+    ctx = saved_chat_setup
+    seed_saved_chat(ctx)
+
+    before = ctx.http.get(
+        ctx.path, headers=ctx.headers
+    ).json()
+
+    ctx.respond(invalid_response)
+
+    response = ctx.http.post(
+        "/chat",
+        headers=ctx.headers,
+        json={
+            "message": "Update my search",
+            "conversation_id": ctx.conversation_id,
+        },
+    )
+
+    assert response.status_code == 502, response.text
+
+    after = ctx.http.get(
+        ctx.path, headers=ctx.headers
+    ).json()
+
+    assert after == before
+
+
+def test_saved_facing_conversation_ownership(saved_chat_setup):
+    ctx = saved_chat_setup
+    seed_saved_chat(ctx)
+
+    before = ctx.http.get(
+        ctx.path, headers=ctx.headers
+    ).json()
+
+    ctx.ai.reset_mock()
+
+    response = ctx.http.get(
+        ctx.path, headers=ctx.other_headers
+    )
+    assert response.status_code == 404
+
+    response = ctx.http.post(
+        "/chat",
+        headers=ctx.other_headers,
+        json={
+            "message": "Change facing to west",
+            "conversation_id": ctx.conversation_id,
+        },
+    )
+    assert response.status_code == 404
+
+    response = ctx.http.delete(
+        ctx.path, headers=ctx.other_headers
+    )
+    assert response.status_code == 404
+
+    ctx.ai.assert_not_called()
+
+    after = ctx.http.get(
+        ctx.path, headers=ctx.headers
+    ).json()
+
+    assert after == before
