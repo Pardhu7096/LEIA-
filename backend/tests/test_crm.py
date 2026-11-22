@@ -78,7 +78,7 @@ def database():
             name = connection.execute("SELECT current_database() AS name").fetchone()[
                 "name"
             ]
-            if name not in {"leia_test", "crm_test", "leia_facing_regression_test", "leia_facing_r4_test", "leia_facing_r5_test", "leia_facing_r7_test"}:
+            if name not in {"leia_test", "crm_test", "leia_facing_regression_test", "leia_facing_r4_test", "leia_facing_r5_test", "leia_facing_r7_test", "leia_crm_hotfix_test"}:
                 pytest.fail("Use an explicitly allowed disposable test database.")
             # A guard table prevents overwriting any database that already has users.
             exists = connection.execute(

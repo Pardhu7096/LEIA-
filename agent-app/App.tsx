@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import PropertyWorkspace from "./src/components/propertyWorkspace";
-import { createStaffSession } from "./src/lib/staffSession";
+import { createStaffSession, restoreStaffSession } from "./src/lib/staffSession";
 import { styles } from "./src/styles/auth.styles";
 
 // Match the browser host so SameSite refresh cookies work across local ports.
@@ -69,13 +69,58 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [session, setSession] = useState<StaffSession | null>(null);
+  const [initializing, setInitializing] = useState(true);
   const [busy, setBusy] = useState(false);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [error, setError] = useState("");
 
   const busyRef = useRef(false);
 
+  useEffect(() => {
+    let active = true;
+
+    async function initialize() {
+      try {
+        const restored = await restoreStaffSession(API_URL);
+
+        if (!active || !restored) return;
+
+        const response = await restored.authFetch("/auth/staff/me");
+
+        if (!active || response.status === 401) return;
+
+        const user: unknown = await readResponse(response);
+
+        if (!isStaffUser(user)) {
+          throw new Error("Invalid staff profile.");
+        }
+
+        if (active) {
+          setSession({ ...restored, user });
+        }
+      } catch {
+        if (active) {
+          setError(
+            "Could not restore your session. Please sign in again.",
+          );
+        }
+      } finally {
+        if (active) {
+          setInitializing(false);
+        }
+      }
+    }
+
+    void initialize();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   async function login() {
+    if (initializing) return;
+
     const normalizedEmail = email.trim().toLowerCase();
 
     if (busyRef.current || !normalizedEmail || !password) {
@@ -180,7 +225,14 @@ export default function App() {
             </Text>
           ) : null}
 
-          {session ? (
+          {initializing ? (
+            <View accessibilityRole="progressbar">
+              <ActivityIndicator color="#166534" size="large" />
+              <Text style={styles.subtitle}>
+                Restoring your secure session...
+              </Text>
+            </View>
+          ) : session ? (
             <>
               <Text style={styles.badge}>
                 {session.user.role === "admin" ? "ADMIN" : "AGENT"}

@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from groq import APIError, Groq, RateLimitError
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, ValidationError
@@ -762,3 +763,20 @@ def chat(
         "user_message_id": user_message_id,
         "assistant_message_id": assistant_message_id,
     }
+
+
+# Optional Agent CRM production web hosting.
+# Keep this mount after the existing API routes.
+AGENT_WEB_DIR = (
+    Path(__file__).resolve().parent / "agent_web"
+)
+
+if (AGENT_WEB_DIR / "index.html").is_file():
+    app.mount(
+        "/agent",
+        StaticFiles(
+            directory=str(AGENT_WEB_DIR),
+            html=True,
+        ),
+        name="agent-web",
+    )

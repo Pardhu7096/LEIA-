@@ -69,3 +69,54 @@ export function createStaffSession(apiUrl: string, initialToken: string) {
 
   return { authFetch, logout };
 }
+
+async function requestStaffSession(apiUrl: string) {
+  const response = await fetch(
+    `${apiUrl}/auth/staff/refresh`,
+    sessionRequest,
+  );
+
+  if (response.status === 401) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Session restoration failed (${response.status}).`,
+    );
+  }
+
+  const data = await response.json();
+
+  if (
+    typeof data?.access_token !== "string" ||
+    !data.access_token.trim()
+  ) {
+    throw new Error(
+      "The server did not return a valid access token.",
+    );
+  }
+
+  return createStaffSession(apiUrl, data.access_token);
+}
+
+const startupRefreshes = new Map<
+  string,
+  Promise<ReturnType<typeof createStaffSession> | null>
+>();
+
+export function restoreStaffSession(apiUrl: string) {
+  const existing = startupRefreshes.get(apiUrl);
+
+  if (existing) {
+    return existing;
+  }
+
+  const pending = requestStaffSession(apiUrl).finally(() => {
+    startupRefreshes.delete(apiUrl);
+  });
+
+  startupRefreshes.set(apiUrl, pending);
+
+  return pending;
+}

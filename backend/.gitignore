@@ -9,3 +9,6 @@ node_modules/
 dist/
 .render-jwt-secret
 installed-packages.txt
+
+# Generated Agent CRM static assets
+/agent_web/

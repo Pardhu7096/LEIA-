@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Generated Agent CRM web builds
+/dist-agent-hotfix/
+/dist-agent-local/
