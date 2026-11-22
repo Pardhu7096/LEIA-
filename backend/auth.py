@@ -129,13 +129,12 @@ def set_refresh_cookie(
 
     expires_at = expires_at.astimezone(timezone.utc)
 
-    response.set_cookie(
-        key=STAFF_COOKIE_NAME if staff else COOKIE_NAME,
+    # Cross-site customer web clients need SameSite=None over HTTPS.\n    # Keep staff cookies unchanged and retain Lax for local HTTP development.\n    cookie_samesite = "none" if COOKIE_SECURE and not staff else "lax"\n\n    response.set_cookie(\n        key=STAFF_COOKIE_NAME if staff else COOKIE_NAME,
         value=token,
         expires=expires_at,
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",
+        samesite=cookie_samesite,
         path="/auth/staff" if staff else "/auth",
     )
 
@@ -382,12 +381,11 @@ def revoke_session(request: Request, response: Response, *, staff: bool):
                     (session_token_hash(current_token, staff),),
                 )
 
-    response.delete_cookie(
-        key=STAFF_COOKIE_NAME if staff else COOKIE_NAME,
+    cookie_samesite = "none" if COOKIE_SECURE and not staff else "lax"\n    response.delete_cookie(\n        key=STAFF_COOKIE_NAME if staff else COOKIE_NAME,
         path="/auth/staff" if staff else "/auth",
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",
+        samesite=cookie_samesite,
     )
 
     response.headers["Cache-Control"] = "no-store"
