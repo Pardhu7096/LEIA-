@@ -46,3 +46,8 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r backend/requirements-test.txt
       - run: python -m pytest backend/tests/test_crm.py -q
+      # Digital Studio tests need their own empty database.
+      - run: psql postgresql://postgres:crm-test-only@localhost:5432/crm_test -c 'CREATE DATABASE leia_marketing_test;'
+      - run: python -m pytest backend/tests/test_marketing_jobs.py -q
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:crm-test-only@localhost:5432/leia_marketing_test

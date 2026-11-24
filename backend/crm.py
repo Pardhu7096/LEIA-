@@ -3,6 +3,7 @@ from uuid import UUID
 from auth import require_admin, require_staff
 from database import get_connection
 from fastapi import APIRouter, Depends, HTTPException, Response
+from marketing_jobs import enqueue_on_publish
 from property_models import (
     PropertyDetails,
     PropertyDraft,
@@ -240,6 +241,8 @@ def transition_property(property_id, version, user, *, publish: bool):
                        WHERE id = %s;""",
                     (user["id"], property_id),
                 )
+                # Digital Studio: savepoint-protected, never blocks approval.
+                enqueue_on_publish(connection, property_id, user["id"])
             else:
                 cursor.execute(
                     """UPDATE public.properties
