@@ -7,3 +7,19 @@ __pycache__/
 node_modules/
 .expo/
 dist/
+
+# Database dumps, local audit output and scratch files: never commit (public repo).
+backups/
+*.dump
+*.backup
+*_report.txt
+*.bak
+*.diff
+
+# Digital Studio: raw footage and generated media stay out of Git.
+renders/
+studio-media/
+*.mp4
+*.mov
+*.wav
+*.mp3

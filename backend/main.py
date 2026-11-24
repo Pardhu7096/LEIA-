@@ -19,6 +19,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from auth import get_current_user, router as auth_router
 from crm import router as crm_router
 from database import get_connection
+from marketing_jobs import router as marketing_router
 from property_models import FacingDirection
 from rate_limits import limit_chat, limit_maps
 from nearby_places import Category, router as nearby_router, shortest_nearby_walk
@@ -41,6 +42,7 @@ app.include_router(auth_router)
 app.include_router(crm_router)
 app.include_router(media_router)
 app.include_router(nearby_router)
+app.include_router(marketing_router)
 
 app.add_middleware(
     CORSMiddleware,
