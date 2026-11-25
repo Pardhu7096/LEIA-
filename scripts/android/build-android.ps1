@@ -108,16 +108,30 @@ $sha = (& git -C $RepoPath rev-parse --verify "$Commit^{commit}" 2>$null)
 if ($LASTEXITCODE -ne 0 -or -not $sha) { Fail "commit '$Commit' not found in $RepoPath (fetch first)" }
 $sha = $sha.Trim(); $short = $sha.Substring(0, 7)
 $stamp = $started.ToString('yyyyMMddTHHmmssZ')
-$work = Join-Path $tc.caches.short_build_root "$App-$short-$stamp"
-if (Test-Path -LiteralPath $work) { Fail "work folder exists: $work" }
+# Native (CMake/ninja) builds embed the absolute source path twice in object paths, and
+# ninja is limited to 260-character Windows paths. The first e7c585a build failed at 269
+# characters with D:\LB\customer-e7c585a-<UTC>\frontend\. Keep the project root tiny:
+# D:\LB\<a|c><4 hex>[n]\s (about 14 characters). Descriptive names go in the manifest.
+$baseName = '{0}{1}' -f $App.Substring(0, 1), $short.Substring(0, 4)
+$work = Join-Path $tc.caches.short_build_root $baseName
+$n = 1
+while (Test-Path -LiteralPath $work) {
+    $n++
+    if ($n -gt 9) { Fail "too many work folders for $baseName in $($tc.caches.short_build_root); remove old ones first" }
+    $work = Join-Path $tc.caches.short_build_root "$baseName$n"
+}
+$src = Join-Path $work 's'
+$maxSrcLength = 16
+if ($src.Length -gt $maxSrcLength) { Fail "project path '$src' is $($src.Length) characters; native builds need <= $maxSrcLength (Windows 260-character limit in ninja)" }
 New-Item -ItemType Directory -Path $work | Out-Null
 $script:cleanupOnFail = $work
 $zipPath = Join-Path $work 'source.zip'
-& git -C $RepoPath archive --format=zip -o $zipPath $sha $appCfg.dir
+# Archive the app folder's tree so its contents land directly in $src (no extra path segment).
+& git -C $RepoPath archive --format=zip -o $zipPath "$($sha):$($appCfg.dir)"
 if ($LASTEXITCODE -ne 0) { Fail 'git archive failed' }
-Expand-Archive -LiteralPath $zipPath -DestinationPath $work
+Expand-Archive -LiteralPath $zipPath -DestinationPath $src
 Remove-Item -LiteralPath $zipPath
-$src = Join-Path $work $appCfg.dir
+Set-Content -LiteralPath (Join-Path $work 'BUILD-INFO.txt') -Value "app=$App commit=$sha started_utc=$stamp" -Encoding ASCII
 
 Step 'Validating app.json identity'
 $appJson = (Get-Content -LiteralPath (Join-Path $src 'app.json') -Raw | ConvertFrom-Json).expo
@@ -263,7 +277,7 @@ $manifest = [ordered]@{
     dependencies     = [ordered]@{ expo = $deps.expo; react_native = $deps.'react-native'; react = $deps.react; expo_modules_core = $deps.'expo-modules-core'; hermes_compiler = $deps.'hermes-compiler'; package_lock_sha256 = $lockSha }
     signing          = [ordered]@{ mode = $Signing; cert_sha256 = $info.signer_cert_sha256; cert_sha1 = $info.signer_cert_sha1; schemes = $info.signing_schemes; public_debug_key = $info.signed_with_public_debug_key }
     apk              = [ordered]@{ file = $apkName; sha256 = $info.sha256; size_bytes = $info.size_bytes; abis = $info.abis; min_sdk = $info.min_sdk; target_sdk = $info.target_sdk; compile_sdk = $info.compile_sdk; permissions = $info.permissions }
-    build            = [ordered]@{ started_utc = $started.ToString('o'); finished_utc = [DateTime]::UtcNow.ToString('o'); script_sha256 = (Get-Sha256 $PSCommandPath); toolchain_sha256 = (Get-Sha256 $tcPath) }
+    build            = [ordered]@{ work_dir = $work; source_dir = $src; started_utc = $started.ToString('o'); finished_utc = [DateTime]::UtcNow.ToString('o'); script_sha256 = (Get-Sha256 $PSCommandPath); toolchain_sha256 = (Get-Sha256 $tcPath) }
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $outDir 'build-manifest.json') -Encoding UTF8
 "$($info.sha256) *$apkName" | Set-Content -LiteralPath (Join-Path $outDir 'SHA256SUMS') -Encoding ASCII

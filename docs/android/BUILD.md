@@ -33,7 +33,10 @@ git fetch origin
 ```
 The script:
 1. Refuses to start unless Java, Node, the SDK, NDK and CMake match the pins.
-2. Exports the app folder from the exact commit (`git archive`) into `D:\LB\<app>-<sha7>-<UTC>`. The short path avoids the Windows long-path CMake/ninja failures seen on 2026-11-23.
+2. Exports the app folder from the exact commit (`git archive <sha>:<dir>`) into a tiny project root, `D:\LB\<a|c><sha4>[n]\s` (for example `D:\LB\ce7c5\s`), and refuses if it would exceed 16 characters.
+   - **Why:** CMake/ninja embed the absolute source path twice in object-file paths, and ninja is limited to 260-character Windows paths, even with `LongPathsEnabled=1`.
+   - On 2026-11-25 `D:\LB\customer-e7c585a-<UTC>\frontend\` produced a 269-character path and failed in `react-native-worklets`. The 2026-11-23 failures had the same cause.
+   - The commit and timestamp are written to `BUILD-INFO.txt` and to the manifest (`build.work_dir`).
 3. Checks `app.json` identity and versionCode, and checks the lockfile pins.
 4. `npm ci`, then `expo prebuild --platform android --clean`, then verifies the Gradle wrapper URL and adds its pinned SHA-256.
 5. `gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a`, with `EXPO_PUBLIC_API_URL` set to `-ApiUrl`.
