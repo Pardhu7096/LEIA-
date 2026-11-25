@@ -1,0 +1,73 @@
+{
+  "_comment": "Pinned Android build toolchain for LEIA. Build scripts refuse to run if the machine does not match. Contains no secrets.",
+  "node": "22.16.0",
+  "java": {
+    "vendor": "Eclipse Adoptium (Temurin)",
+    "version": "17.0.21",
+    "runtime": "17.0.21+9",
+    "default_home": "D:\\Java\\temurin-17.0.21+9"
+  },
+  "gradle": {
+    "version": "9.4.1",
+    "distribution_url": "https://services.gradle.org/distributions/gradle-9.4.1-bin.zip",
+    "distribution_sha256": "2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb"
+  },
+  "android_sdk": {
+    "default_root": "D:\\Android\\Sdk",
+    "platform": "android-37.0",
+    "build_tools": "36.0.0",
+    "ndk": "27.1.12297006",
+    "cmake": "3.22.1"
+  },
+  "android_app": {
+    "compile_sdk": 37,
+    "target_sdk": 36,
+    "min_sdk": 24,
+    "abi": "arm64-v8a"
+  },
+  "caches": {
+    "gradle_user_home": "D:\\DevCaches\\gradle",
+    "npm_cache": "D:\\DevCaches\\npm",
+    "short_build_root": "D:\\LB"
+  },
+  "forbidden_permissions": [
+    "android.permission.ACCESS_BACKGROUND_LOCATION",
+    "android.permission.FOREGROUND_SERVICE_LOCATION"
+  ],
+  "apps": {
+    "agent": {
+      "dir": "agent-app",
+      "application_id": "com.leiarealestate.agent",
+      "display_name": "LEIA Agent CRM",
+      "expo": "58.0.23",
+      "react_native": "0.88.1",
+      "min_version_code": 2,
+      "original_demo": {
+        "file": "LEIA-Agent-CRM-Demo.apk",
+        "sha256": "64765c0d086401d72d84c4a1cdf24a592c9d5e3720077a45c63f7bdf9d13cdd1",
+        "version_code": 1,
+        "version_name": "1.0.0"
+      }
+    },
+    "customer": {
+      "dir": "frontend",
+      "application_id": "com.leiarealestate.customer",
+      "display_name": "LEIA",
+      "expo": "58.0.22",
+      "react_native": "0.88.1",
+      "min_version_code": 2,
+      "original_demo": {
+        "file": "LEIA-Customer-Demo.apk",
+        "sha256": "1e6a4115eee45b8d29f1c462e90439fd67aab81a17dc51b6a59722cc0e35653e",
+        "version_code": 1,
+        "version_name": "1.0.0"
+      }
+    }
+  },
+  "signing": {
+    "debug_public_cert_sha256": "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
+    "_debug_note": "Public React Native template debug key. Both installed demos use it. Staging-only; anyone can sign with it.",
+    "release_cert_sha256": null,
+    "_release_note": "Set only after the owner creates the release keystore (docs/android/SIGNING.md). The fingerprint is public; the keystore and passwords never enter Git."
+  }
+}
