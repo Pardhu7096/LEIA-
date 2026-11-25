@@ -39,7 +39,12 @@ The script:
    - The commit and timestamp are written to `BUILD-INFO.txt` and to the manifest (`build.work_dir`).
 3. Checks `app.json` identity and versionCode, and checks the lockfile pins.
 4. `npm ci`, then `expo prebuild --platform android --clean`, then verifies the Gradle wrapper URL and adds its pinned SHA-256.
-5. `gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a`, with `EXPO_PUBLIC_API_URL` set to `-ApiUrl`.
+   It then edits the generated `android/app/build.gradle` (in the build copy only) with `externalNativeBuild.cmake.buildStagingDirectory "<work>/n"` and `-DCMAKE_OBJECT_PATH_MAX=250`.
+   - **Why:** the app module's native codegen build (for example react-native-gesture-handler) reaches about 327 characters even from `D:\LB\ce7c5\s`. CMake shortens object paths over the maximum, and the only successful build (2026-11-24) needed exactly these two settings (longest object path 248).
+   - The script refuses if the template layout changes or the settings are already present.
+5. `gradlew :app:assembleRelease --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PreactNativeArchitectures=arm64-v8a`, with `EXPO_PUBLIC_API_URL` set to `-ApiUrl`.
+   - **Why bounded parallelism:** the build machine has 8 logical CPUs and 7.9 GB RAM. With Gradle's default worker count, a 2026-11-25 validation build ran out of virtual memory: clang crashed in expo-modules-core and react-native-reanimated, a native-library copy failed with "Insufficient system resources", and Windows logged event 2004.
+   - Both values are pinned in `toolchain.json` (`gradle.max_workers`, `gradle.kotlin_compiler_execution_strategy`) and match the only successful build.
 6. Verifies the APK: id, versionCode, label, SDK levels, ABI, **no background-location permission**, signature, expected signer fingerprint, and the baked API host.
 7. Copies the APK, `mapping.txt`, `build.log`, `SHA256SUMS` and `build-manifest.json` to `D:\LEIA-Releases\builds\<app>\<version>-vc<code>-<sha7>-<signing>\`. **Existing folders are never overwritten.**
 

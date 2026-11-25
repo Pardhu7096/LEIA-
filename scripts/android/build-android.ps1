@@ -82,6 +82,9 @@ $required = @(
     "ndk\$($tc.android_sdk.ndk)",
     "cmake\$($tc.android_sdk.cmake)"
 )
+if ($tc.android_sdk.PSObject.Properties.Name -contains 'additional_build_tools') {
+    foreach ($v in $tc.android_sdk.additional_build_tools) { $required += "build-tools\$v" }
+}
 foreach ($rel in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $sdkRoot $rel))) { Fail "Android SDK component missing: $sdkRoot\$rel" }
 }
@@ -178,6 +181,32 @@ New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 $env:TMP = $tmpDir; $env:TEMP = $tmpDir
 $log = Join-Path $work 'build.log'
 
+$cmakeObjectPathMax = 250
+$cmakeStagingDir = (Join-Path $work 'n') -replace '\\', '/'
+
+function Set-CMakePathLimits([string]$GradleFile, [string]$StagingDir, [int]$ObjectPathMax) {
+    # The app module's native build (React Native codegen for libraries such as
+    # react-native-gesture-handler) produces object paths over Windows' 260-character limit
+    # even from a short root (about 327 chars from D:\LB\ce7c5\s). The only successful
+    # build (2026-11-24) needed both settings below, edited into the generated file by hand.
+    # Apply them deterministically, and refuse if the template no longer matches.
+    $text = [IO.File]::ReadAllText($GradleFile)
+    if ($text -match 'CMAKE_OBJECT_PATH_MAX|buildStagingDirectory') {
+        throw "app/build.gradle already contains CMake path settings; the Expo template changed"
+    }
+    $androidRx = '(?m)^android \{\r?$'
+    $defaultRx = '(?m)^    defaultConfig \{\r?$'
+    $a = [regex]::Matches($text, $androidRx).Count
+    $d = [regex]::Matches($text, $defaultRx).Count
+    if ($a -ne 1 -or $d -ne 1) { throw "app/build.gradle layout changed (android blocks: $a, defaultConfig blocks: $d)" }
+    $nl = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $androidBlock = "android {$nl    externalNativeBuild {$nl        cmake {$nl            buildStagingDirectory `"$StagingDir`"$nl        }$nl    }"
+    $defaultBlock = "    defaultConfig {$nl        externalNativeBuild {$nl            cmake {$nl                arguments `"-DCMAKE_OBJECT_PATH_MAX=$ObjectPathMax`"$nl            }$nl        }"
+    $text = [regex]::Replace($text, $androidRx, $androidBlock)
+    $text = [regex]::Replace($text, $defaultRx, $defaultBlock)
+    [IO.File]::WriteAllText($GradleFile, $text, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 function Invoke-Logged([string]$Label, [scriptblock]$Command) {
     # Windows PowerShell 5.1 turns a native tool's stderr lines (compiler notes, warnings)
     # into error records; with ErrorActionPreference=Stop that aborts the script even when
@@ -208,11 +237,23 @@ try {
     $wp = @($wp | Where-Object { $_ -notlike 'distributionSha256Sum=*' }) + "distributionSha256Sum=$($tc.gradle.distribution_sha256)"
     Set-Content -LiteralPath $wrapper -Value $wp -Encoding ASCII
 
-    Step 'Gradle assembleRelease (arm64-v8a)'
+    Step "Applying CMake path limits (object path max $cmakeObjectPathMax, staging $cmakeStagingDir)"
+    try { Set-CMakePathLimits (Join-Path $src 'android\app\build.gradle') $cmakeStagingDir $cmakeObjectPathMax }
+    catch { Fail $_.Exception.Message }
+
+    # Bounded parallelism: on the 7.9 GB build machine the default worker count exhausted
+    # virtual memory (clang crashes, "Insufficient system resources"). Values are pinned in
+    # toolchain.json and match the only successful build (2026-11-24).
+    $maxWorkers = [int](Get-Prop $tc 'gradle.max_workers')
+    $kotlinStrategy = Get-Prop $tc 'gradle.kotlin_compiler_execution_strategy'
+    if ($maxWorkers -lt 1 -or -not $kotlinStrategy) { Fail 'toolchain.json gradle.max_workers / kotlin_compiler_execution_strategy missing' }
+    Step "Gradle assembleRelease (arm64-v8a, max-workers $maxWorkers, Kotlin $kotlinStrategy)"
     Push-Location (Join-Path $src 'android')
     try {
         $abiArg = "-PreactNativeArchitectures=$($tc.android_app.abi)"
-        Invoke-Logged 'Gradle assembleRelease' { & .\gradlew.bat ':app:assembleRelease' '--no-daemon' '--console=plain' $abiArg }
+        $workersArg = "--max-workers=$maxWorkers"
+        $kotlinArg = "-Pkotlin.compiler.execution.strategy=$kotlinStrategy"
+        Invoke-Logged 'Gradle assembleRelease' { & .\gradlew.bat ':app:assembleRelease' '--no-daemon' '--console=plain' $workersArg $kotlinArg $abiArg }
     } finally { Pop-Location }
 } finally { Pop-Location }
 
@@ -277,7 +318,7 @@ $manifest = [ordered]@{
     dependencies     = [ordered]@{ expo = $deps.expo; react_native = $deps.'react-native'; react = $deps.react; expo_modules_core = $deps.'expo-modules-core'; hermes_compiler = $deps.'hermes-compiler'; package_lock_sha256 = $lockSha }
     signing          = [ordered]@{ mode = $Signing; cert_sha256 = $info.signer_cert_sha256; cert_sha1 = $info.signer_cert_sha1; schemes = $info.signing_schemes; public_debug_key = $info.signed_with_public_debug_key }
     apk              = [ordered]@{ file = $apkName; sha256 = $info.sha256; size_bytes = $info.size_bytes; abis = $info.abis; min_sdk = $info.min_sdk; target_sdk = $info.target_sdk; compile_sdk = $info.compile_sdk; permissions = $info.permissions }
-    build            = [ordered]@{ work_dir = $work; source_dir = $src; started_utc = $started.ToString('o'); finished_utc = [DateTime]::UtcNow.ToString('o'); script_sha256 = (Get-Sha256 $PSCommandPath); toolchain_sha256 = (Get-Sha256 $tcPath) }
+    build            = [ordered]@{ work_dir = $work; source_dir = $src; cmake_object_path_max = $cmakeObjectPathMax; cmake_staging_dir = $cmakeStagingDir; gradle_max_workers = $maxWorkers; kotlin_execution = $kotlinStrategy; started_utc = $started.ToString('o'); finished_utc = [DateTime]::UtcNow.ToString('o'); script_sha256 = (Get-Sha256 $PSCommandPath); toolchain_sha256 = (Get-Sha256 $tcPath) }
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $outDir 'build-manifest.json') -Encoding UTF8
 "$($info.sha256) *$apkName" | Set-Content -LiteralPath (Join-Path $outDir 'SHA256SUMS') -Encoding ASCII
