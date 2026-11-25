@@ -7,6 +7,10 @@ param(
     [Parameter(Mandatory = $true)][string]$Commit,
     [Parameter(Mandatory = $true)][string]$ApiUrl,
     [ValidateSet('debug', 'release')][string]$Signing = 'debug',
-    [string]$KeystorePath, [string]$KeyAlias, [switch]$DryRun
+    [string]$KeystorePath, [string]$KeyAlias,
+    [string]$RepoPath, [string]$OutputRoot,
+    [switch]$DryRun
 )
+# Only parameters the caller actually passed are forwarded (@PSBoundParameters), so
+# build-android.ps1 keeps its own defaults for RepoPath and OutputRoot.
 & (Join-Path $PSScriptRoot 'build-android.ps1') -App agent @PSBoundParameters
