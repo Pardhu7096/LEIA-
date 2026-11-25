@@ -521,12 +521,17 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
         )
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
-    monkeypatch.setenv("GROQ_API_KEY", "test-only")
-    monkeypatch.setattr(groq, "Groq", lambda **kwargs: SimpleNamespace(
+    fake_groq = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=extract))
-    ))
+    )
+    monkeypatch.setenv("GROQ_API_KEY", "test-only")
+    monkeypatch.setattr(groq, "Groq", lambda **kwargs: fake_groq)
     import main
     import property_media
+
+    # main may already be imported by another test module with a real client;
+    # replace it directly so this test never calls the Groq API.
+    monkeypatch.setattr(main, "client", fake_groq)
     from io import BytesIO
     from PIL import Image
 
@@ -1540,3 +1545,81 @@ def test_saved_facing_conversation_ownership(saved_chat_setup):
     ).json()
 
     assert after == before
+
+
+def test_native_refresh_concurrency_and_reuse_on_postgres(client, monkeypatch):
+    """Migration 009 + SELECT ... FOR UPDATE under real concurrent requests."""
+    import threading
+
+    import auth
+    import native_sessions
+
+    app, _, connect = client
+    app.include_router(native_sessions.router)
+    monkeypatch.setattr(auth, "get_connection", connect)
+    monkeypatch.setattr(native_sessions, "get_connection", connect)
+    password = "native-test-password"
+
+    with connect() as connection:
+        columns = {
+            row["column_name"] for row in connection.execute(
+                """SELECT column_name FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'auth_sessions'"""
+            ).fetchall()
+        }
+        assert {"previous_refresh_token_hash", "rotation_request_hash",
+                "rotated_at", "revoke_reason"} <= columns
+        connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+
+    def native_user():
+        user = staff(connect, "customer")
+        with connect() as connection:
+            connection.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (auth.password_hasher.hash(password), user["id"]),
+            )
+        with TestClient(app) as http:
+            response = http.post("/auth/native/login",
+                                 json={"email": user["email"], "password": password})
+        assert response.status_code == 200, response.text
+        return user, response.json()["refresh_token"]
+
+    def race(token, request_ids):
+        barrier = threading.Barrier(len(request_ids))
+        results = [None] * len(request_ids)
+
+        def worker(index, request_id):
+            with TestClient(app) as http:
+                barrier.wait()
+                results[index] = http.post("/auth/native/refresh", json={
+                    "refresh_token": token, "request_id": request_id,
+                })
+
+        threads = [threading.Thread(target=worker, args=(i, rid))
+                   for i, rid in enumerate(request_ids)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        return results
+
+    def session_of(user):
+        with connect() as connection:
+            return connection.execute(
+                "SELECT revoked_at, revoke_reason FROM auth_sessions WHERE user_id = %s",
+                (user["id"],),
+            ).fetchone()
+
+    # Same attempt retried concurrently: both succeed with the identical token.
+    user, token = native_user()
+    same = "a" * 32
+    first, second = race(token, [same, same])
+    assert first.status_code == second.status_code == 200
+    assert first.json()["refresh_token"] == second.json()["refresh_token"]
+    assert session_of(user)["revoked_at"] is None
+
+    # Two different holders of one token: one wins, the reuse revokes the session.
+    user, token = native_user()
+    results = race(token, ["b" * 32, "c" * 32])
+    assert sorted(r.status_code for r in results) == [200, 401]
+    assert session_of(user)["revoke_reason"] == "reuse_detected"
