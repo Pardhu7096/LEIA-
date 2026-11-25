@@ -1623,3 +1623,166 @@ def test_native_refresh_concurrency_and_reuse_on_postgres(client, monkeypatch):
     results = race(token, ["b" * 32, "c" * 32])
     assert sorted(r.status_code for r in results) == [200, 401]
     assert session_of(user)["revoke_reason"] == "reuse_detected"
+
+
+# ---------------------------------------------------------------------------
+# GEO-M1: on-demand GPS capture provenance
+# ---------------------------------------------------------------------------
+
+GPS_TIME = "2026-11-20T05:00:00+00:00"  # fixed past time (future times are rejected)
+
+
+@pytest.mark.parametrize(
+    "changes, ok",
+    [
+        ({"latitude": 17.7, "longitude": 83.3, "location_source": "gps",
+          "location_accuracy_m": 12.5, "location_captured_at": GPS_TIME}, True),
+        ({"latitude": 17.7, "longitude": 83.3, "location_source": "manual"}, True),
+        ({"latitude": 17.7, "longitude": 83.3}, True),  # older client: no metadata
+        ({}, True),
+        ({"latitude": 17.7, "longitude": 83.3, "location_source": "gps",
+          "location_captured_at": GPS_TIME}, False),  # GPS without accuracy
+        ({"latitude": 17.7, "longitude": 83.3, "location_source": "gps",
+          "location_accuracy_m": 12.5}, False),  # GPS without time
+        ({"latitude": 17.7, "longitude": 83.3, "location_source": "gps",
+          "location_accuracy_m": 150, "location_captured_at": GPS_TIME}, False),  # too imprecise
+        ({"latitude": 17.7, "longitude": 83.3, "location_source": "gps",
+          "location_accuracy_m": 10, "location_captured_at": "2099-01-01T00:00:00Z"}, False),  # future
+        ({"latitude": 17.7, "longitude": 83.3, "location_source": "manual",
+          "location_accuracy_m": 10}, False),  # manual with GPS data
+        ({"latitude": 17.7, "longitude": 83.3, "location_accuracy_m": 10}, False),  # no source
+        ({"location_source": "manual"}, False),  # metadata without coordinates
+        ({"latitude": 17.7, "longitude": 83.3, "location_source": "network"}, False),
+    ],
+)
+def test_location_capture_validation(changes, ok):
+    payload = {"title": "Home", "property_type": "flat", **changes}
+    if ok:
+        PropertyDraft(**payload)
+    else:
+        with pytest.raises(ValidationError):
+            PropertyDraft(**payload)
+
+
+def test_gps_location_survives_edit_submit_and_approval(database, monkeypatch):
+    import auth
+    import groq
+    import main
+    import property_media
+
+    fake_groq = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=None)))
+    monkeypatch.setenv("GROQ_API_KEY", "test-only")
+    monkeypatch.setattr(groq, "Groq", lambda **kwargs: fake_groq)
+    monkeypatch.setattr(main, "client", fake_groq)
+    connect = database
+    monkeypatch.setattr(main, "get_connection", connect)
+    monkeypatch.setattr(property_media, "get_connection", connect)
+    monkeypatch.setattr(auth, "get_connection", connect)
+    owner, admin = [staff(connect, role) for role in ("agent", "admin")]
+
+    def headers(user):
+        return {"Authorization": f"Bearer {create_access_token(user['id'])['access_token']}"}
+
+    def stored(property_id):
+        with connect() as connection:
+            return connection.execute(
+                """SELECT latitude, longitude, location_source, location_accuracy_m,
+                          location_captured_at, status FROM properties WHERE id = %s""",
+                (property_id,),
+            ).fetchone()
+
+    gps = {"latitude": 17.744821, "longitude": 83.341207, "location_source": "gps",
+           "location_accuracy_m": 8.4, "location_captured_at": GPS_TIME}
+    base = {
+        "title": "GPS Pinned Villa", "property_type": "flat", "locality": "Madhurawada",
+        "city": "Visakhapatnam", "price": 6400000, "area_sqft": 1210, "bedrooms": 2,
+        "owner_name": "Private owner", "owner_phone": "+91 90000 00000",
+        "listing_consent": True,
+    }
+    with TestClient(main.app) as http:
+        created = http.post("/staff/properties", json={**base, **gps}, headers=headers(owner))
+        assert created.status_code == 201, created.text
+        listing = created.json()
+        path = f"/staff/properties/{listing['id']}"
+        detail = http.get(path, headers=headers(owner)).json()
+        assert detail["location_source"] == "gps"
+        assert detail["location_accuracy_m"] == pytest.approx(8.4)
+        # Same instant regardless of the database session's time zone.
+        from datetime import datetime
+        assert datetime.fromisoformat(detail["location_captured_at"]) == datetime.fromisoformat(GPS_TIME)
+        row = stored(listing["id"])
+        assert (row["latitude"], row["longitude"]) == (17.744821, 83.341207)
+
+        # Agent corrects the pin by hand: provenance becomes manual, GPS data cleared.
+        manual = {"latitude": 17.7449, "longitude": 83.3413, "location_source": "manual"}
+        edited = http.put(path, json={**base, **manual, "version": detail["version"]}, headers=headers(owner))
+        assert edited.status_code == 200, edited.text
+        row = stored(listing["id"])
+        assert row["location_source"] == "manual"
+        assert row["location_accuracy_m"] is None and row["location_captured_at"] is None
+
+        # Recapture by GPS.
+        version = http.get(path, headers=headers(owner)).json()["version"]
+        recaptured = http.put(path, json={**base, **gps, "version": version}, headers=headers(owner))
+        assert recaptured.status_code == 200, recaptured.text
+
+        # The installed (older) Agent APK sends no location metadata: coordinates are kept.
+        version = http.get(path, headers=headers(owner)).json()["version"]
+        legacy_body = {**base, "latitude": 17.744821, "longitude": 83.341207, "version": version}
+        legacy = http.put(path, json=legacy_body, headers=headers(owner))
+        assert legacy.status_code == 200, legacy.text
+        row = stored(listing["id"])
+        assert (row["latitude"], row["longitude"], row["location_source"]) == (17.744821, 83.341207, None)
+
+        # Final GPS save, then submit and approve: nothing about the location changes.
+        version = http.get(path, headers=headers(owner)).json()["version"]
+        assert http.put(path, json={**base, **gps, "version": version}, headers=headers(owner)).status_code == 200
+        before = stored(listing["id"])
+        version = http.get(path, headers=headers(owner)).json()["version"]
+        submitted = http.post(f"{path}/submit", json={"version": version}, headers=headers(owner))
+        assert submitted.status_code == 200, submitted.text
+        approved = http.post(f"{path}/approve", json={"version": submitted.json()["version"]}, headers=headers(admin))
+        assert approved.status_code == 200, approved.text
+        after = stored(listing["id"])
+        assert after["status"] == "approved"
+        for key in ("latitude", "longitude", "location_source", "location_accuracy_m", "location_captured_at"):
+            assert after[key] == before[key], key
+
+        # Published listing: no coordinates or location metadata in the public search payload.
+        public = http.get("/properties").json()["properties"]
+        mine = [p for p in public if p["id"] == listing["id"]]
+        assert mine, "approved listing should be searchable"
+        text = repr(mine[0])
+        for secret in ("17.744821", "83.341207", "location_source", "location_accuracy", "latitude"):
+            assert secret not in text, secret
+
+        # Digital Studio snapshot excludes the provenance metadata.
+        with connect() as connection:
+            job = connection.execute(
+                "SELECT property_snapshot FROM marketing_jobs WHERE property_id = %s", (listing["id"],)
+            ).fetchone()
+        assert job is not None, "approval should queue a marketing job"
+        snapshot_property = job["property_snapshot"]["property"]
+        for key in ("location_source", "location_accuracy_m", "location_captured_at"):
+            assert key not in snapshot_property, key
+
+
+def test_migration_011_constraints_reject_inconsistent_rows(database):
+    connect = database
+    owner = staff(connect, "agent")
+    with connect() as connection:
+        connection.execute(
+            "INSERT INTO properties (title, property_type, created_by) VALUES ('Constraint probe', 'flat', %s)",
+            (owner["id"],),
+        )
+    bad_updates = [
+        "location_source = 'manual'",  # metadata without coordinates
+        "latitude = 1, longitude = 1, location_source = 'gps'",  # gps without accuracy/time
+        "latitude = 1, longitude = 1, location_source = 'manual', location_accuracy_m = 5",
+        "latitude = 1, longitude = 1, location_source = 'satellite'",
+        "latitude = 1, longitude = 1, location_source = 'gps', location_accuracy_m = 9999, location_captured_at = now()",
+    ]
+    for assignment in bad_updates:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with connect() as connection:
+                connection.execute(f"UPDATE properties SET {assignment} WHERE title = 'Constraint probe'")

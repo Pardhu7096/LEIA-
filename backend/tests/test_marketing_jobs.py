@@ -35,7 +35,10 @@ ALLOWED_DATABASES = {"leia_marketing_test", "crm_test"}
 
 
 def test_private_fields_never_reach_the_snapshot():
-    assert marketing_jobs.PRIVATE_FIELDS == set(crm.PRIVATE_FIELDS)
+    # Everything the CRM keeps private stays out of snapshots, and so does the
+    # GEO-M1 coordinate provenance (internal review data).
+    location_meta = {"location_source", "location_accuracy_m", "location_captured_at"}
+    assert marketing_jobs.PRIVATE_FIELDS == set(crm.PRIVATE_FIELDS) | location_meta
     assert not marketing_jobs.PRIVATE_FIELDS & set(marketing_jobs.SNAPSHOT_FIELDS)
     for name in ("title", "price", "bedrooms", "area_sqft", "facing", "locality"):
         assert name in marketing_jobs.SNAPSHOT_FIELDS

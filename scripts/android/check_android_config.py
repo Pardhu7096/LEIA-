@@ -62,7 +62,18 @@ for name, app in tc.get("apps", {}).items():
         got = lock.get(f"node_modules/{dep}", {}).get("version")
         if got != pin:
             err(f"{app['dir']}/package-lock.json: {dep} is {got}, toolchain.json pins {pin}")
-    _ = pkg, blocked
+    # Foreground-only location (GEO-M1): if expo-location is configured, background
+    # location and the location foreground service must be explicitly off AND blocked.
+    for plugin in expo.get("plugins", []):
+        name, options = (plugin[0], plugin[1] if len(plugin) > 1 else {}) if isinstance(plugin, list) else (plugin, {})
+        if name != "expo-location":
+            continue
+        if options.get("isAndroidBackgroundLocationEnabled") is not False or options.get("isAndroidForegroundServiceEnabled") is not False:
+            err(f"{path.relative_to(ROOT)}: expo-location must set isAndroidBackgroundLocationEnabled and isAndroidForegroundServiceEnabled to false")
+        for needed in ("android.permission.ACCESS_BACKGROUND_LOCATION", "android.permission.FOREGROUND_SERVICE_LOCATION"):
+            if needed not in blocked:
+                err(f"{path.relative_to(ROOT)}: android.blockedPermissions must include {needed} when expo-location is used")
+    _ = pkg
 
 for script in ("build-android.ps1", "build-agent.ps1", "build-customer.ps1", "inspect-apk.ps1"):
     if not (ROOT / "scripts" / "android" / script).exists():

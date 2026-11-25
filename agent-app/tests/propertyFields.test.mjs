@@ -4,9 +4,53 @@ import {
   buildPayload,
   fields,
   initialValues,
+  locationMetaFromServer,
 } from "../src/lib/propertyFields.ts";
 
 const draft = () => ({ ...initialValues(), title: "Madhura Apartments" });
+
+const gps = { source: "gps", accuracyM: 12.3, capturedAt: "2026-11-26T04:59:59.000Z" };
+
+test("GPS-captured coordinates carry accuracy and capture time", () => {
+  const payload = buildPayload({ ...draft(), latitude: "17.723105", longitude: "83.301248" }, false, gps);
+  assert.equal(payload.latitude, 17.723105);
+  assert.equal(payload.longitude, 83.301248);
+  assert.equal(payload.location_source, "gps");
+  assert.equal(payload.location_accuracy_m, 12.3);
+  assert.equal(payload.location_captured_at, "2026-11-26T04:59:59.000Z");
+});
+
+test("manual coordinates are labelled manual with no GPS metadata", () => {
+  for (const meta of [null, { source: "manual" }]) {
+    const payload = buildPayload({ ...draft(), latitude: "17.7", longitude: "83.3" }, false, meta);
+    assert.equal(payload.location_source, "manual");
+    assert.equal(payload.location_accuracy_m, null);
+    assert.equal(payload.location_captured_at, null);
+  }
+});
+
+test("clearing coordinates clears location metadata, even after a GPS capture", () => {
+  const payload = buildPayload(draft(), false, gps);
+  assert.equal(payload.latitude, null);
+  assert.equal(payload.longitude, null);
+  assert.equal(payload.location_source, null);
+  assert.equal(payload.location_accuracy_m, null);
+  assert.equal(payload.location_captured_at, null);
+});
+
+test("a half-filled coordinate pair is still rejected", () => {
+  assert.throws(() => buildPayload({ ...draft(), latitude: "17.7" }, false, gps), /both coordinates/);
+});
+
+test("location metadata is read back from the server, tolerating older servers", () => {
+  assert.deepEqual(
+    locationMetaFromServer({ location_source: "gps", location_accuracy_m: 8, location_captured_at: "2026-11-26T05:00:00Z" }),
+    { source: "gps", accuracyM: 8, capturedAt: "2026-11-26T05:00:00Z" },
+  );
+  assert.deepEqual(locationMetaFromServer({ location_source: "manual" }), { source: "manual" });
+  assert.equal(locationMetaFromServer({}), null);
+  assert.equal(locationMetaFromServer({ location_source: "gps" }), null);
+});
 
 test("unknown values and zero counts remain distinct", () => {
   const payload = buildPayload({ ...draft(), car_parking_spaces: "0" }, false);

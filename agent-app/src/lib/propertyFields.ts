@@ -301,7 +301,27 @@ export const initialValues = () =>
     ]),
   );
 
-export function buildPayload(values: Record<string, string>, consent: boolean) {
+// How the saved coordinates were obtained (GEO-M1). Staff-only metadata.
+export type LocationMeta =
+  | { source: "gps"; accuracyM: number; capturedAt: string }
+  | { source: "manual" };
+
+/** Reads location metadata from a loaded draft; tolerant of older servers. */
+export function locationMetaFromServer(data: Record<string, unknown>): LocationMeta | null {
+  if (data.location_source === "gps"
+    && typeof data.location_accuracy_m === "number"
+    && typeof data.location_captured_at === "string") {
+    return { source: "gps", accuracyM: data.location_accuracy_m, capturedAt: data.location_captured_at };
+  }
+  if (data.location_source === "manual") return { source: "manual" };
+  return null;
+}
+
+export function buildPayload(
+  values: Record<string, string>,
+  consent: boolean,
+  location: LocationMeta | null = null,
+) {
   const payload: Record<string, string | number | boolean | null> = {
     listing_consent: consent,
   };
@@ -376,6 +396,21 @@ export function buildPayload(values: Record<string, string>, consent: boolean) {
   }
   if (payload.pincode && !/^\d{6}$/.test(String(payload.pincode))) {
     throw new Error("PIN code must contain exactly six digits.");
+  }
+  // Coordinate provenance: GPS metadata travels only with GPS-captured coordinates;
+  // typed or edited coordinates are "manual"; no coordinates means no metadata.
+  if (payload.latitude === null) {
+    payload.location_source = null;
+    payload.location_accuracy_m = null;
+    payload.location_captured_at = null;
+  } else if (location?.source === "gps") {
+    payload.location_source = "gps";
+    payload.location_accuracy_m = location.accuracyM;
+    payload.location_captured_at = location.capturedAt;
+  } else {
+    payload.location_source = "manual";
+    payload.location_accuracy_m = null;
+    payload.location_captured_at = null;
   }
   return payload;
 }

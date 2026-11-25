@@ -1,6 +1,6 @@
 """Validated staff draft fields. Unknown is different from no/zero."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -15,6 +15,12 @@ FacingDirection = Literal[
     "north", "northeast", "east", "southeast",
     "south", "southwest", "west", "northwest",
 ]
+
+# GEO-M1 coordinate provenance. "gps": one on-demand foreground fix from the Agent CRM;
+# "manual": typed or edited by the agent.
+LocationSource = Literal["gps", "manual"]
+MAX_GPS_ACCURACY_M = 100.0  # the Agent CRM refuses poorer fixes too
+MAX_LOCATION_ACCURACY_M = 5000.0  # storage bound (database CHECK)
 
 
 class PropertyDraft(BaseModel):
@@ -87,6 +93,11 @@ class PropertyDraft(BaseModel):
     listing_consent: bool = False
     agent_notes: str | None = Field(default=None, max_length=10000)
     facing: FacingDirection | None = None
+    # GEO-M1: how the coordinates were obtained. Staff-only; never in public payloads
+    # or Digital Studio snapshots. Null source = recorded before GEO-M1 or by an older app.
+    location_source: LocationSource | None = None
+    location_accuracy_m: float | None = Field(default=None, ge=0, le=MAX_LOCATION_ACCURACY_M)
+    location_captured_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_coordinates(self):
@@ -94,6 +105,30 @@ class PropertyDraft(BaseModel):
             raise ValueError(
                 "Provide both latitude and longitude, or leave both empty."
             )
+        has_meta = (
+            self.location_source is not None
+            or self.location_accuracy_m is not None
+            or self.location_captured_at is not None
+        )
+        if self.latitude is None and has_meta:
+            raise ValueError("Location details need coordinates.")
+        if self.location_source == "gps":
+            if self.location_accuracy_m is None or self.location_captured_at is None:
+                raise ValueError("A GPS location needs its accuracy and capture time.")
+            if self.location_accuracy_m > MAX_GPS_ACCURACY_M:
+                raise ValueError(
+                    f"GPS accuracy must be {MAX_GPS_ACCURACY_M:g} m or better; enter the coordinates manually instead."
+                )
+            captured = self.location_captured_at
+            if captured.tzinfo is None:
+                captured = captured.replace(tzinfo=timezone.utc)
+            if captured > datetime.now(timezone.utc) + timedelta(minutes=5):
+                raise ValueError("The GPS capture time is in the future.")
+        elif self.location_source == "manual":
+            if self.location_accuracy_m is not None or self.location_captured_at is not None:
+                raise ValueError("Manually entered coordinates have no GPS accuracy or capture time.")
+        elif self.location_accuracy_m is not None or self.location_captured_at is not None:
+            raise ValueError("Set the location source when sending accuracy or capture time.")
         return self
 
 
