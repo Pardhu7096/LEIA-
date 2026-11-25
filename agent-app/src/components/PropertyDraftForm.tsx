@@ -79,7 +79,8 @@ export default function PropertyDraftForm({
               typeof value !== "string" &&
               typeof value !== "number") ||
             (field.choices &&
-              !field.choices.some((choice) => choice[0] === value))
+              // A null choice (for example facing not recorded) maps to the "" option.
+              !field.choices.some(([choice]) => choice === (value ?? "")))
           ) {
             throw new Error("The server returned incomplete draft details.");
           }
