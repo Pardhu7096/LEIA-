@@ -158,14 +158,33 @@ $env:GRADLE_USER_HOME = $tc.caches.gradle_user_home
 $env:npm_config_cache = $tc.caches.npm_cache
 $env:EXPO_PUBLIC_API_URL = $ApiUrl
 $env:NODE_ENV = 'production'; $env:CI = '1'
+# Keep temporary files on the build drive (Java and Node take their temp dir from TMP/TEMP on Windows).
+$tmpDir = Join-Path $work 'tmp'
+New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+$env:TMP = $tmpDir; $env:TEMP = $tmpDir
 $log = Join-Path $work 'build.log'
+
+function Invoke-Logged([string]$Label, [scriptblock]$Command) {
+    # Windows PowerShell 5.1 turns a native tool's stderr lines (compiler notes, warnings)
+    # into error records; with ErrorActionPreference=Stop that aborts the script even when
+    # the tool succeeds. Log everything and judge success only by the exit code.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Command *>> $log
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($code -ne 0) { Fail "$Label failed with exit code $code (see $log)" }
+}
 
 Push-Location $src
 try {
     Step 'npm ci'
-    & npm ci --no-audit --no-fund *>> $log; if ($LASTEXITCODE -ne 0) { Fail "npm ci failed (see $log)" }
+    Invoke-Logged 'npm ci' { & npm ci --no-audit --no-fund }
     Step 'expo prebuild (android)'
-    & npx expo prebuild --platform android --clean --no-install *>> $log; if ($LASTEXITCODE -ne 0) { Fail "expo prebuild failed (see $log)" }
+    Invoke-Logged 'expo prebuild' { & npx expo prebuild --platform android --clean --no-install }
 
     Step 'Pinning Gradle wrapper'
     $wrapper = Join-Path $src 'android\gradle\wrapper\gradle-wrapper.properties'
@@ -178,8 +197,8 @@ try {
     Step 'Gradle assembleRelease (arm64-v8a)'
     Push-Location (Join-Path $src 'android')
     try {
-        & .\gradlew.bat ':app:assembleRelease' '--no-daemon' '--console=plain' "-PreactNativeArchitectures=$($tc.android_app.abi)" *>> $log
-        if ($LASTEXITCODE -ne 0) { Fail "Gradle failed (see $log)" }
+        $abiArg = "-PreactNativeArchitectures=$($tc.android_app.abi)"
+        Invoke-Logged 'Gradle assembleRelease' { & .\gradlew.bat ':app:assembleRelease' '--no-daemon' '--console=plain' $abiArg }
     } finally { Pop-Location }
 } finally { Pop-Location }
 
@@ -190,10 +209,13 @@ if ($Signing -eq 'release') {
     Step 'Re-signing with the release key (passwords from environment only)'
     $bt = Join-Path $sdkRoot "build-tools\$($tc.android_sdk.build_tools)"
     $signed = Join-Path $work 'app-release-signed.apk'
-    & $javaExe -jar (Join-Path $bt 'lib\apksigner.jar') sign --ks $ksFull --ks-key-alias $KeyAlias `
-        --ks-pass env:LEIA_KEYSTORE_PASSWORD --key-pass env:LEIA_KEYSTORE_PASSWORD `
-        --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true --out $signed $apk
-    if ($LASTEXITCODE -ne 0) { Fail 'apksigner sign failed' }
+    $apksignerJar = Join-Path $bt 'lib\apksigner.jar'
+    $unsigned = $apk
+    Invoke-Logged 'apksigner sign' {
+        & $javaExe -jar $apksignerJar sign --ks $ksFull --ks-key-alias $KeyAlias `
+            --ks-pass env:LEIA_KEYSTORE_PASSWORD --key-pass env:LEIA_KEYSTORE_PASSWORD `
+            --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true --out $signed $unsigned
+    }
     $apk = $signed
 }
 

@@ -26,8 +26,17 @@ foreach ($tool in @($aapt, $apksignerJar, $java)) {
     if (-not (Test-Path -LiteralPath $tool)) { throw "Required tool missing: $tool" }
 }
 
-$badging = & $aapt dump badging $Apk 2>$null
-if ($LASTEXITCODE -ne 0) { throw "aapt could not read $Apk" }
+function Invoke-Tool([scriptblock]$Command) {
+    # Windows PowerShell 5.1: native stderr (warnings, "Picked up ..." notices) must not
+    # abort under ErrorActionPreference=Stop. Returns stdout+stderr lines as strings.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $out = @(& $Command 2>&1 | ForEach-Object { "$_" }); $script:toolExit = $LASTEXITCODE }
+    finally { $ErrorActionPreference = $previous }
+    return $out
+}
+$badging = Invoke-Tool { & $aapt dump badging $Apk }
+if ($script:toolExit -ne 0) { throw "aapt could not read $Apk" }
 function Get-Match([string[]]$lines, [string]$pattern) {
     foreach ($l in $lines) { $m = [regex]::Match($l, $pattern); if ($m.Success) { return $m.Groups[1].Value } }
     return $null
@@ -36,11 +45,11 @@ $pkgLine = ($badging | Where-Object { $_ -like 'package:*' } | Select-Object -Fi
 $abis = @()
 $nativeLine = ($badging | Where-Object { $_ -like 'native-code:*' } | Select-Object -First 1)
 if ($nativeLine) { $abis = @([regex]::Matches($nativeLine, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value }) }
-$perms = @(& $aapt dump permissions $Apk 2>$null | ForEach-Object {
+$perms = @(Invoke-Tool { & $aapt dump permissions $Apk } | ForEach-Object {
         $m = [regex]::Match($_, "uses-permission: name='([^']+)'"); if ($m.Success) { $m.Groups[1].Value } })
 $forbidden = @($perms | Where-Object { $tc.forbidden_permissions -contains $_ })
 
-$sig = & $java -jar $apksignerJar verify --verbose --print-certs $Apk 2>&1 | ForEach-Object { "$_" }
+$sig = Invoke-Tool { & $java -jar $apksignerJar verify --verbose --print-certs $Apk }
 $verifies = [bool]($sig | Where-Object { $_ -eq 'Verifies' })
 $signers = @($sig | Where-Object { $_ -match '^Signer #\d+ certificate SHA-256 digest: ' } | ForEach-Object { ($_ -split ': ')[1].Trim() })
 $sha1 = @($sig | Where-Object { $_ -match '^Signer #\d+ certificate SHA-1 digest: ' } | ForEach-Object { ($_ -split ': ')[1].Trim() })
