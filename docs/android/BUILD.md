@@ -39,6 +39,9 @@ The script:
    - The commit and timestamp are written to `BUILD-INFO.txt` and to the manifest (`build.work_dir`).
 3. Checks `app.json` identity and versionCode, and checks the lockfile pins.
 4. `npm ci`, then `expo prebuild --platform android --clean`, then verifies the Gradle wrapper URL and adds its pinned SHA-256.
+   It then edits the generated `android/app/build.gradle` (in the build copy only) with `externalNativeBuild.cmake.buildStagingDirectory "<work>/n"` and `-DCMAKE_OBJECT_PATH_MAX=250`.
+   - **Why:** the app module's native codegen build (for example react-native-gesture-handler) reaches about 327 characters even from `D:\LB\ce7c5\s`. CMake shortens object paths over the maximum, and the only successful build (2026-11-24) needed exactly these two settings (longest object path 248).
+   - The script refuses if the template layout changes or the settings are already present.
 5. `gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a`, with `EXPO_PUBLIC_API_URL` set to `-ApiUrl`.
 6. Verifies the APK: id, versionCode, label, SDK levels, ABI, **no background-location permission**, signature, expected signer fingerprint, and the baked API host.
 7. Copies the APK, `mapping.txt`, `build.log`, `SHA256SUMS` and `build-manifest.json` to `D:\LEIA-Releases\builds\<app>\<version>-vc<code>-<sha7>-<signing>\`. **Existing folders are never overwritten.**
