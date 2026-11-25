@@ -37,7 +37,23 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 $started = [DateTime]::UtcNow
 
-function Fail([string]$msg) { throw "BUILD STOPPED: $msg" }
+$script:cleanupOnFail = $null
+function Fail([string]$msg) {
+    # Validation failures before the build remove their own export folder.
+    if ($script:cleanupOnFail -and (Test-Path -LiteralPath $script:cleanupOnFail)) {
+        Remove-Item -LiteralPath $script:cleanupOnFail -Recurse -Force
+    }
+    throw "BUILD STOPPED: $msg"
+}
+function Get-Prop($obj, [string]$path) {
+    # StrictMode-safe nested property lookup: returns $null when any part is missing.
+    $cur = $obj
+    foreach ($part in $path.Split('.')) {
+        if ($null -eq $cur -or -not ($cur.PSObject.Properties.Name -contains $part)) { return $null }
+        $cur = $cur.$part
+    }
+    return $cur
+}
 function Step([string]$msg) { Write-Host "==> $msg" }
 function Get-Sha256([string]$path) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLower() }
 
@@ -95,6 +111,7 @@ $stamp = $started.ToString('yyyyMMddTHHmmssZ')
 $work = Join-Path $tc.caches.short_build_root "$App-$short-$stamp"
 if (Test-Path -LiteralPath $work) { Fail "work folder exists: $work" }
 New-Item -ItemType Directory -Path $work | Out-Null
+$script:cleanupOnFail = $work
 $zipPath = Join-Path $work 'source.zip'
 & git -C $RepoPath archive --format=zip -o $zipPath $sha $appCfg.dir
 if ($LASTEXITCODE -ne 0) { Fail 'git archive failed' }
@@ -104,9 +121,12 @@ $src = Join-Path $work $appCfg.dir
 
 Step 'Validating app.json identity'
 $appJson = (Get-Content -LiteralPath (Join-Path $src 'app.json') -Raw | ConvertFrom-Json).expo
-if ($appJson.android.package -ne $appCfg.application_id) { Fail "android.package is '$($appJson.android.package)', expected '$($appCfg.application_id)'" }
+$pkgName = Get-Prop $appJson 'android.package'
+$vcRaw = Get-Prop $appJson 'android.versionCode'
+if ($pkgName -ne $appCfg.application_id) { Fail "android.package in $($appCfg.dir)/app.json at $short is '$pkgName', expected '$($appCfg.application_id)' (commit predates GEO-M0?)" }
 if ($appJson.name -ne $appCfg.display_name) { Fail "name is '$($appJson.name)', expected '$($appCfg.display_name)'" }
-$versionCode = [int]$appJson.android.versionCode
+if ($null -eq $vcRaw) { Fail "android.versionCode missing in $($appCfg.dir)/app.json at $short" }
+$versionCode = [int]$vcRaw
 if ($versionCode -lt [int]$appCfg.min_version_code) { Fail "versionCode $versionCode is below $($appCfg.min_version_code) (installed demos use $($appCfg.original_demo.version_code))" }
 
 $deps = & node -e @"
@@ -128,6 +148,8 @@ if ($DryRun) {
     Remove-Item -LiteralPath $work -Recurse -Force
     return
 }
+# From here on a failed build keeps its folder so build.log can be inspected.
+$script:cleanupOnFail = $null
 
 # ------------------------------------------------------------------ build
 $env:JAVA_HOME = $javaHome
