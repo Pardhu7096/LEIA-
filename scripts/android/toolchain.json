@@ -10,7 +10,10 @@
   "gradle": {
     "version": "9.4.1",
     "distribution_url": "https://services.gradle.org/distributions/gradle-9.4.1-bin.zip",
-    "distribution_sha256": "2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb"
+    "distribution_sha256": "2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb",
+    "max_workers": 2,
+    "kotlin_compiler_execution_strategy": "in-process",
+    "_resources_note": "Build machine: 8 logical CPUs, 7.9 GB RAM. Default parallelism exhausted virtual memory on 2026-11-25 (clang crashes, 'Insufficient system resources', Windows event 2004). The only successful build (2026-11-24) used --max-workers=2 and in-process Kotlin."
   },
   "android_sdk": {
     "default_root": "D:\\Android\\Sdk",

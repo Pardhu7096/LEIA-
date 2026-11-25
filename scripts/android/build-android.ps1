@@ -241,11 +241,19 @@ try {
     try { Set-CMakePathLimits (Join-Path $src 'android\app\build.gradle') $cmakeStagingDir $cmakeObjectPathMax }
     catch { Fail $_.Exception.Message }
 
-    Step 'Gradle assembleRelease (arm64-v8a)'
+    # Bounded parallelism: on the 7.9 GB build machine the default worker count exhausted
+    # virtual memory (clang crashes, "Insufficient system resources"). Values are pinned in
+    # toolchain.json and match the only successful build (2026-11-24).
+    $maxWorkers = [int](Get-Prop $tc 'gradle.max_workers')
+    $kotlinStrategy = Get-Prop $tc 'gradle.kotlin_compiler_execution_strategy'
+    if ($maxWorkers -lt 1 -or -not $kotlinStrategy) { Fail 'toolchain.json gradle.max_workers / kotlin_compiler_execution_strategy missing' }
+    Step "Gradle assembleRelease (arm64-v8a, max-workers $maxWorkers, Kotlin $kotlinStrategy)"
     Push-Location (Join-Path $src 'android')
     try {
         $abiArg = "-PreactNativeArchitectures=$($tc.android_app.abi)"
-        Invoke-Logged 'Gradle assembleRelease' { & .\gradlew.bat ':app:assembleRelease' '--no-daemon' '--console=plain' $abiArg }
+        $workersArg = "--max-workers=$maxWorkers"
+        $kotlinArg = "-Pkotlin.compiler.execution.strategy=$kotlinStrategy"
+        Invoke-Logged 'Gradle assembleRelease' { & .\gradlew.bat ':app:assembleRelease' '--no-daemon' '--console=plain' $workersArg $kotlinArg $abiArg }
     } finally { Pop-Location }
 } finally { Pop-Location }
 
@@ -310,7 +318,7 @@ $manifest = [ordered]@{
     dependencies     = [ordered]@{ expo = $deps.expo; react_native = $deps.'react-native'; react = $deps.react; expo_modules_core = $deps.'expo-modules-core'; hermes_compiler = $deps.'hermes-compiler'; package_lock_sha256 = $lockSha }
     signing          = [ordered]@{ mode = $Signing; cert_sha256 = $info.signer_cert_sha256; cert_sha1 = $info.signer_cert_sha1; schemes = $info.signing_schemes; public_debug_key = $info.signed_with_public_debug_key }
     apk              = [ordered]@{ file = $apkName; sha256 = $info.sha256; size_bytes = $info.size_bytes; abis = $info.abis; min_sdk = $info.min_sdk; target_sdk = $info.target_sdk; compile_sdk = $info.compile_sdk; permissions = $info.permissions }
-    build            = [ordered]@{ work_dir = $work; source_dir = $src; cmake_object_path_max = $cmakeObjectPathMax; cmake_staging_dir = $cmakeStagingDir; started_utc = $started.ToString('o'); finished_utc = [DateTime]::UtcNow.ToString('o'); script_sha256 = (Get-Sha256 $PSCommandPath); toolchain_sha256 = (Get-Sha256 $tcPath) }
+    build            = [ordered]@{ work_dir = $work; source_dir = $src; cmake_object_path_max = $cmakeObjectPathMax; cmake_staging_dir = $cmakeStagingDir; gradle_max_workers = $maxWorkers; kotlin_execution = $kotlinStrategy; started_utc = $started.ToString('o'); finished_utc = [DateTime]::UtcNow.ToString('o'); script_sha256 = (Get-Sha256 $PSCommandPath); toolchain_sha256 = (Get-Sha256 $tcPath) }
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $outDir 'build-manifest.json') -Encoding UTF8
 "$($info.sha256) *$apkName" | Set-Content -LiteralPath (Join-Path $outDir 'SHA256SUMS') -Encoding ASCII
