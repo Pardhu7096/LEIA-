@@ -786,3 +786,9 @@ if (AGENT_WEB_DIR / "index.html").is_file():
         ),
         name="agent-web",
     )
+
+app.mount(
+    "/studio",
+    StaticFiles(directory=Path(__file__).resolve().parent / "studio_web", html=True),
+    name="digital-studio-web",
+)

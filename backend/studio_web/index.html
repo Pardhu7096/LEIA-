@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>LEIA Digital Studio</title>
+  <link rel="stylesheet" href="./studio.css">
+  <script type="module" src="./studio.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="frame brand"><span class="mark" aria-hidden="true">L</span><strong>LEIA</strong><span class="divider"></span><span>Digital Studio</span>
+      <button id="sign-out" class="secondary" hidden>Sign out</button>
+    </div>
+  </header>
+  <main class="frame">
+    <p id="notice" role="status" hidden></p>
+    <section id="login" class="panel login" hidden>
+      <h1>Digital Studio</h1>
+      <p class="muted">Sign in with your LEIA admin account.</p>
+      <form id="sign-in">
+        <label>Email <input name="email" type="email" autocomplete="username" required></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <button>Sign in</button>
+      </form>
+    </section>
+    <section id="workspace" hidden>
+      <h1>Digital Studio</h1>
+      <div class="layout">
+        <section class="panel">
+          <div class="section-title"><h2>Marketing jobs</h2><button id="refresh" class="secondary">Refresh</button></div>
+          <ul id="jobs"></ul>
+          <p id="empty" class="muted" hidden>Jobs appear after a listing is approved.</p>
+          <button id="more" class="secondary" hidden>Load more</button>
+          <section id="job-details" class="details" aria-live="polite" hidden></section>
+        </section>
+        <section class="panel">
+          <h2>Listing inputs</h2>
+          <label>Draft listing <select id="draft"><option value="">Choose a draft</option></select></label>
+          <form id="upload">
+            <label>Walkthrough MP4 <input name="walkthrough" type="file" accept="video/mp4,.mp4" required></label>
+            <small class="muted">Up to 100 MiB and 10 minutes.</small>
+            <button disabled>Upload walkthrough</button>
+          </form>
+          <form id="contact">
+            <label>Verified agent phone <input name="phone" type="tel" placeholder="+919876543210" pattern="\+[1-9][0-9]{7,14}" required></label>
+            <label class="check"><input name="confirmed" type="checkbox" required> I confirmed this number and marketing consent with the agent.</label>
+            <button disabled>Save verified phone</button>
+          </form>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
