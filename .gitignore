@@ -34,3 +34,6 @@ keystore.properties
 *.aab
 *.idsig
 build-manifest.json
+
+# Build-installed tools (scripts/render/install-ffprobe.sh)
+backend/bin/

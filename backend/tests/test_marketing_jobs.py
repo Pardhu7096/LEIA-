@@ -483,3 +483,17 @@ def test_approval_captures_walkthrough_and_admin_verified_contact(database, http
     assert snapshot["agent"]["phone"] == phone["phone"]
     assert snapshot["agent"]["phone_verified_at"]
     assert snapshot["media"] == [{"id": media["id"], "kind": "walkthrough"}]
+
+
+def test_studio_status_is_admin_only_and_reveals_no_settings(database, http, monkeypatch):
+    monkeypatch.setenv("STUDIO_S3_BUCKET", "private-test-bucket")
+    agent, admin = (make_user(database, role) for role in ("agent", "admin"))
+    assert http.get("/staff/marketing/studio/status").status_code == 401
+    assert http.get("/staff/marketing/studio/status", headers=headers(agent)).status_code == 403
+    status = http.get("/staff/marketing/studio/status", headers=headers(admin))
+    assert status.status_code == 200
+    body = status.json()
+    assert set(body) == {"ffprobe", "storage_configured"} and body["storage_configured"] is True
+    assert "private-test-bucket" not in status.text
+    monkeypatch.delenv("STUDIO_S3_BUCKET")
+    assert http.get("/staff/marketing/studio/status", headers=headers(admin)).json()["storage_configured"] is False
