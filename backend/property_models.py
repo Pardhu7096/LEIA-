@@ -21,6 +21,11 @@ FacingDirection = Literal[
 LocationSource = Literal["gps", "manual"]
 MAX_GPS_ACCURACY_M = 100.0  # the Agent CRM refuses poorer fixes too
 MAX_LOCATION_ACCURACY_M = 5000.0  # storage bound (database CHECK)
+# Device clock handling (GEO-M1.1): a capture time is the phone's own timestamp and is
+# stored exactly as sent, never rewritten. One clearly ahead of the server, or
+# implausibly old, is rejected with guidance instead.
+GPS_CLOCK_SKEW_TOLERANCE = timedelta(minutes=10)
+GPS_EARLIEST_VALID = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
 class PropertyDraft(BaseModel):
@@ -121,9 +126,16 @@ class PropertyDraft(BaseModel):
                 )
             captured = self.location_captured_at
             if captured.tzinfo is None:
-                captured = captured.replace(tzinfo=timezone.utc)
-            if captured > datetime.now(timezone.utc) + timedelta(minutes=5):
-                raise ValueError("The GPS capture time is in the future.")
+                # Ambiguous without an offset; do not guess (GEO-M1.1).
+                raise ValueError("The GPS capture time must include a time zone.")
+            if captured < GPS_EARLIEST_VALID:
+                raise ValueError("The GPS capture time is not valid. Recapture the location or enter the coordinates manually.")
+            if captured > datetime.now(timezone.utc) + GPS_CLOCK_SKEW_TOLERANCE:
+                raise ValueError(
+                    "This phone's clock is ahead of the server, so the GPS capture time cannot be trusted. "
+                    "Set the phone's date and time to automatic, then recapture the location, "
+                    "or enter the coordinates manually."
+                )
         elif self.location_source == "manual":
             if self.location_accuracy_m is not None or self.location_captured_at is not None:
                 raise ValueError("Manually entered coordinates have no GPS accuracy or capture time.")

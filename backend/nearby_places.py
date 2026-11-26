@@ -168,9 +168,10 @@ def find_places(
         if not name or not place_id:
             continue
 
+        # GEO-M1.1 (M1): no "origin". The exact property pin must not reach customers;
+        # Google Maps starts directions from the viewer's own location instead.
         directions = urlencode({
             "api": "1",
-            "origin": f"{latitude},{longitude}",
             "destination": address or name,
             "destination_place_id": place_id,
         })
