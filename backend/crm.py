@@ -97,11 +97,50 @@ def read_details(cursor, property_id, user):
     return record
 
 
+LOCATION_META_FIELDS = ("location_source", "location_accuracy_m", "location_captured_at")
+COORDINATE_TOLERANCE = 1e-9
+
+
+def same_coordinates(stored, payload) -> bool:
+    if stored["latitude"] is None or payload.latitude is None:
+        return False
+    return (
+        abs(stored["latitude"] - payload.latitude) <= COORDINATE_TOLERANCE
+        and abs(stored["longitude"] - payload.longitude) <= COORDINATE_TOLERANCE
+    )
+
+
+def location_meta_for_write(payload, stored=None) -> dict:
+    """GEO-M1.1: coordinate provenance to write, distinguishing omitted from explicit.
+
+    A client that sends any location field (the GEO-M1 Agent CRM) states the
+    provenance explicitly, explicit nulls included, and it is stored as validated.
+    A client that omits all of them (Agent CRM APKs built before GEO-M1) must not
+    erase anything it does not know about:
+      - coordinates unchanged: keep the stored provenance exactly;
+      - coordinates changed or newly entered: they were typed, so 'manual' with
+        no GPS accuracy or capture time;
+      - coordinates cleared: no provenance.
+    """
+    if set(LOCATION_META_FIELDS) & payload.model_fields_set:
+        return {name: getattr(payload, name) for name in LOCATION_META_FIELDS}
+    if payload.latitude is None:
+        return dict.fromkeys(LOCATION_META_FIELDS)
+    if stored is not None and same_coordinates(stored, payload):
+        return {name: stored[name] for name in LOCATION_META_FIELDS}
+    return {"location_source": "manual", "location_accuracy_m": None, "location_captured_at": None}
+
+
+def field_values(payload, meta: dict) -> tuple:
+    return tuple(meta[name] if name in meta else getattr(payload, name) for name in PUBLIC_FIELDS)
+
+
 @router.post("", status_code=201, response_model=PropertySummary)
 def create_property(
     payload: PropertyDraft, response: Response, user=Depends(require_staff)
 ):
     response.headers["Cache-Control"] = "no-store"
+    meta = location_meta_for_write(payload)
     with get_connection() as connection:
         with connection.cursor() as cursor:
             names = ("created_by", *PUBLIC_FIELDS)
@@ -113,7 +152,7 @@ def create_property(
                     sql.SQL(", ").join(sql.Placeholder() for _ in names),
                     columns(SUMMARY_FIELDS),
                 ),
-                (user["id"], *(getattr(payload, name) for name in PUBLIC_FIELDS)),
+                (user["id"], *field_values(payload, meta)),
             )
             record = cursor.fetchone()
             save_private_details(cursor, record["id"], payload)
@@ -154,8 +193,12 @@ def update_property(
     response.headers["Cache-Control"] = "no-store"
     with get_connection() as connection:
         with connection.cursor() as cursor:
+            # The row lock serializes concurrent saves; provenance is decided against
+            # the locked, current row (GEO-M1.1).
             cursor.execute(
-                """SELECT status, version FROM public.properties
+                """SELECT status, version, latitude, longitude, location_source,
+                          location_accuracy_m, location_captured_at
+                   FROM public.properties
                    WHERE id = %s AND (created_by = %s OR %s = 'admin')
                    FOR UPDATE;""",
                 (property_id, user["id"], user["role"]),
@@ -181,7 +224,7 @@ def update_property(
                         for name in PUBLIC_FIELDS
                     )
                 ),
-                (*(getattr(payload, name) for name in PUBLIC_FIELDS), property_id),
+                (*field_values(payload, location_meta_for_write(payload, existing)), property_id),
             )
             save_private_details(cursor, property_id, payload)
             return read_details(cursor, property_id, user)

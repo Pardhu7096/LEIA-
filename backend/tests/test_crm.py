@@ -732,7 +732,7 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
         assert http.get(f"/property-media/{kitchen}").status_code == 404
 
 
-def test_nearby_search_uses_property_pin_and_returns_property_origin(monkeypatch):
+def test_nearby_search_uses_property_pin_but_never_returns_it(monkeypatch):
     import io
     import json
     from urllib.parse import parse_qs, urlparse
@@ -758,7 +758,10 @@ def test_nearby_search_uses_property_pin_and_returns_property_origin(monkeypatch
     assert place["name"] == "Bus stop"
     url = urlparse(place["directions_url"])
     assert url.hostname == "www.google.com"
-    assert parse_qs(url.query)["origin"] == ["17.7,83.3"]
+    # GEO-M1.1 (M1): the pin is used server-side for the search but never returned.
+    assert "origin" not in parse_qs(url.query)
+    assert "17.7" not in place["directions_url"] and "83.3" not in place["directions_url"]
+    assert "17.7" not in json.dumps(place) and "83.3" not in json.dumps(place)
     assert parse_qs(url.query)["destination_place_id"] == ["bus-1"]
 
 
@@ -1726,13 +1729,43 @@ def test_gps_location_survives_edit_submit_and_approval(database, monkeypatch):
         recaptured = http.put(path, json={**base, **gps, "version": version}, headers=headers(owner))
         assert recaptured.status_code == 200, recaptured.text
 
-        # The installed (older) Agent APK sends no location metadata: coordinates are kept.
+        # GEO-M1.1 B3: the installed (older) Agent APK omits the location fields.
+        # Editing an unrelated field with the same coordinates keeps the GPS metadata.
+        gps_row = stored(listing["id"])
         version = http.get(path, headers=headers(owner)).json()["version"]
-        legacy_body = {**base, "latitude": 17.744821, "longitude": 83.341207, "version": version}
+        legacy_body = {**base, "price": 6500000, "latitude": 17.744821, "longitude": 83.341207, "version": version}
         legacy = http.put(path, json=legacy_body, headers=headers(owner))
         assert legacy.status_code == 200, legacy.text
         row = stored(listing["id"])
-        assert (row["latitude"], row["longitude"], row["location_source"]) == (17.744821, 83.341207, None)
+        for key in ("latitude", "longitude", "location_source", "location_accuracy_m", "location_captured_at"):
+            assert row[key] == gps_row[key], key
+        assert row["location_source"] == "gps"
+        assert legacy.json()["price"] == 6500000
+
+        # Older APK changes the coordinates (typed): manual, GPS accuracy and time cleared.
+        version = legacy.json()["version"]
+        moved = http.put(path, json={**base, "latitude": 17.75, "longitude": 83.35, "version": version}, headers=headers(owner))
+        assert moved.status_code == 200, moved.text
+        row = stored(listing["id"])
+        assert (row["location_source"], row["location_accuracy_m"], row["location_captured_at"]) == ("manual", None, None)
+
+        # Older APK clears the coordinates: no provenance left.
+        version = moved.json()["version"]
+        cleared = http.put(path, json={**base, "version": version}, headers=headers(owner))
+        assert cleared.status_code == 200, cleared.text
+        row = stored(listing["id"])
+        assert (row["latitude"], row["location_source"], row["location_accuracy_m"]) == (None, None, None)
+
+        # Explicit nulls from a GEO-M1 client are honoured (not treated as "omitted").
+        version = cleared.json()["version"]
+        explicit = http.put(
+            path,
+            json={**base, "latitude": 17.744821, "longitude": 83.341207, "location_source": None,
+                  "location_accuracy_m": None, "location_captured_at": None, "version": version},
+            headers=headers(owner),
+        )
+        assert explicit.status_code == 200, explicit.text
+        assert stored(listing["id"])["location_source"] is None
 
         # Final GPS save, then submit and approve: nothing about the location changes.
         version = http.get(path, headers=headers(owner)).json()["version"]
@@ -1786,3 +1819,171 @@ def test_migration_011_constraints_reject_inconsistent_rows(database):
         with pytest.raises(psycopg.errors.CheckViolation):
             with connect() as connection:
                 connection.execute(f"UPDATE properties SET {assignment} WHERE title = 'Constraint probe'")
+
+
+# ---------------------------------------------------------------------------
+# GEO-M1.1: legacy clients, concurrency and device clock
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_create_classifies_typed_coordinates_as_manual(client):
+    app, http, connect = client
+    owner = staff(connect, "agent")
+    app.dependency_overrides[require_staff] = lambda: owner
+    with_pin = http.post("/staff/properties", json={"title": "Legacy pin", "property_type": "flat",
+                                                    "latitude": 17.7, "longitude": 83.3})
+    no_pin = http.post("/staff/properties", json={"title": "Legacy no pin", "property_type": "flat"})
+    assert with_pin.status_code == no_pin.status_code == 201
+    with connect() as connection:
+        rows = {r["title"]: r for r in connection.execute(
+            "SELECT title, location_source, location_accuracy_m FROM properties WHERE title LIKE 'Legacy %'").fetchall()}
+    assert (rows["Legacy pin"]["location_source"], rows["Legacy pin"]["location_accuracy_m"]) == ("manual", None)
+    assert rows["Legacy no pin"]["location_source"] is None
+
+
+def test_concurrent_legacy_saves_keep_version_protection_and_gps_metadata(database, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import auth
+    import main
+    import property_media
+
+    connect = database
+    monkeypatch.setattr(main, "get_connection", connect)
+    monkeypatch.setattr(property_media, "get_connection", connect)
+    monkeypatch.setattr(auth, "get_connection", connect)
+    owner = staff(connect, "agent")
+    token = {"Authorization": f"Bearer {create_access_token(owner['id'])['access_token']}"}
+    gps = {"title": "Concurrent", "property_type": "flat", "latitude": 17.71, "longitude": 83.31,
+           "location_source": "gps", "location_accuracy_m": 6.0, "location_captured_at": GPS_TIME}
+    with TestClient(main.app) as http:
+        created = http.post("/staff/properties", json=gps, headers=token)
+        assert created.status_code == 201, created.text
+        path = f"/staff/properties/{created.json()['id']}"
+        version = http.get(path, headers=token).json()["version"]
+
+    def legacy_save(price):
+        body = {"title": "Concurrent", "property_type": "flat", "price": price,
+                "latitude": 17.71, "longitude": 83.31, "version": version}
+        with TestClient(main.app) as worker:
+            return worker.put(path, json=body, headers=token)
+
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(legacy_save, [1000001, 2000002]))
+    assert sorted(r.status_code for r in results) == [200, 409]
+    winner = next(r for r in results if r.status_code == 200).json()
+    with connect() as connection:
+        row = connection.execute(
+            "SELECT price, version, location_source, location_accuracy_m, location_captured_at FROM properties WHERE id = %s",
+            (created.json()["id"],),
+        ).fetchone()
+    assert row["price"] == winner["price"] and row["version"] == version + 1
+    assert (row["location_source"], row["location_accuracy_m"]) == ("gps", 6.0)
+    assert row["location_captured_at"] is not None
+
+
+def test_gps_capture_time_clock_rules():
+    from datetime import datetime, timedelta, timezone
+
+    def draft(captured):
+        return {"title": "Clock", "property_type": "flat", "latitude": 17.7, "longitude": 83.3,
+                "location_source": "gps", "location_accuracy_m": 9, "location_captured_at": captured}
+
+    now = datetime.now(timezone.utc)
+    stored = PropertyDraft(**draft((now + timedelta(minutes=8)).isoformat()))  # within skew tolerance
+    # Stored exactly as the phone sent it; never rewritten to server time.
+    assert stored.location_captured_at == datetime.fromisoformat((now + timedelta(minutes=8)).isoformat())
+    PropertyDraft(**draft("2026-11-20T05:00:00+05:30"))  # offset preserved
+    for bad, message in (
+        ((now + timedelta(minutes=30)).isoformat(), "clock is ahead"),
+        ("2019-12-31T23:00:00+00:00", "not valid"),
+        ("2026-11-20T05:00:00", "time zone"),
+    ):
+        with pytest.raises(ValidationError, match=message):
+            PropertyDraft(**draft(bad))
+
+
+def test_no_customer_reachable_endpoint_exposes_exact_coordinates(database, monkeypatch):
+    """GEO-M1.1 (M1) sweep: a signed-in customer never receives an approved listing's
+    exact coordinates or location metadata, from any customer-reachable route."""
+    import io
+    import json
+    import auth
+    import groq
+    import main
+    import nearby_places
+    import property_media
+
+    connect = database
+    filters = {"bedrooms": 3, "location": "Visakhapatnam"}
+
+    def extract(**kwargs):
+        content = main.SearchRequirements(intent="search", **filters).model_dump_json()
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+    fake_groq = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=extract)))
+    monkeypatch.setenv("GROQ_API_KEY", "test-only")
+    monkeypatch.setenv("GOOGLE_PLACES_API_KEY", "test-only")
+    monkeypatch.setenv("GOOGLE_ROUTES_API_KEY", "test-only")
+    monkeypatch.setattr(groq, "Groq", lambda **kwargs: fake_groq)
+    monkeypatch.setattr(main, "client", fake_groq)
+    for module in (main, property_media, auth, nearby_places):
+        if hasattr(module, "get_connection"):
+            monkeypatch.setattr(module, "get_connection", connect)
+    monkeypatch.setattr(
+        nearby_places, "build_opener",
+        lambda *h: SimpleNamespace(open=lambda request, timeout: io.BytesIO(
+            b'{"places":[{"id":"school-1","displayName":{"text":"Sweep School"},'
+            b'"formattedAddress":"Road 1, Visakhapatnam"}]}')),
+    )
+
+    agent, admin, customer = [staff(connect, role) for role in ("agent", "admin", "customer")]
+
+    def headers(user):
+        return {"Authorization": f"Bearer {create_access_token(user['id'])['access_token']}"}
+
+    LAT, LNG = "17.987654", "83.123456"
+    listing = {
+        "title": "Sweep Residency", "property_type": "flat", "locality": "Madhurawada",
+        "city": "Visakhapatnam", "price": 6100000, "area_sqft": 1150, "bedrooms": 3,
+        "owner_name": "Owner", "owner_phone": "+91 90000 00001", "listing_consent": True,
+        "latitude": float(LAT), "longitude": float(LNG), "location_source": "gps",
+        "location_accuracy_m": 7.5, "location_captured_at": GPS_TIME,
+    }
+    with TestClient(main.app) as http:
+        created = http.post("/staff/properties", json=listing, headers=headers(agent))
+        assert created.status_code == 201, created.text
+        pid = created.json()["id"]
+        path = f"/staff/properties/{pid}"
+        version = http.get(path, headers=headers(agent)).json()["version"]
+        submitted = http.post(f"{path}/submit", json={"version": version}, headers=headers(agent))
+        approved = http.post(f"{path}/approve", json={"version": submitted.json()["version"]}, headers=headers(admin))
+        assert approved.status_code == 200, approved.text
+
+        c = headers(customer)
+        conversation = http.post("/conversations", headers=c)
+        responses = {
+            "GET /properties": http.get("/properties"),
+            "GET /properties (filtered)": http.get("/properties", params=filters),
+            "GET gallery": http.get(f"/properties/{pid}/gallery"),
+            "GET panoramas": http.get(f"/properties/{pid}/panoramas"),
+            "GET nearby": http.get(f"/properties/{pid}/nearby", params={"category": "schools"}, headers=c),
+            "POST /conversations": conversation,
+            "GET /conversations": http.get("/conversations", headers=c),
+            "POST /chat (search)": http.post("/chat", json={"message": "3 bhk in Visakhapatnam",
+                                                           "conversation_id": conversation.json().get("id")}, headers=c),
+            "GET /auth/me": http.get("/auth/me", headers=c),
+        }
+        if conversation.status_code < 300:
+            responses["GET /conversations/{id}"] = http.get(f"/conversations/{conversation.json()['id']}", headers=c)
+        # Staff-only routes stay closed to customers.
+        for staff_path in (path, "/staff/properties", "/staff/marketing/jobs"):
+            assert http.get(staff_path, headers=c).status_code == 403, staff_path
+
+    assert responses["GET nearby"].status_code == 200, responses["GET nearby"].text
+    assert responses["GET nearby"].json()["places"], "Nearby Places still works"
+    assert responses["GET /properties"].status_code == 200
+    assert any(p["id"] == pid for p in responses["GET /properties"].json()["properties"])
+    for label, response in responses.items():
+        body = response.text
+        for secret in (LAT, LNG, "17.98765", "83.12345", "location_source", "location_accuracy", "location_captured"):
+            assert secret not in body, f"{label} leaked {secret!r}"

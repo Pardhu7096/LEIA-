@@ -59,29 +59,37 @@ export default function PropertyDraftForm({
   const [locationMeta, setLocationMeta] = useState<LocationMeta | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [capture, setCapture] = useState<CaptureResult | null>(null);
-  const mountedRef = useRef(true);
+  // GEO-M1.1: each tap is one attempt; only the latest, still-mounted attempt may
+  // change the form. Closing the form cancels an attempt in progress.
+  const attemptRef = useRef(0);
+  const captureAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
-    mountedRef.current = true;
     return () => {
-      mountedRef.current = false;
+      attemptRef.current += 1;
+      captureAbortRef.current?.abort();
     };
   }, []);
 
   async function captureCurrentLocation() {
     if (capturing || savingRef.current) return;
+    const attempt = ++attemptRef.current;
+    const controller = new AbortController();
+    captureAbortRef.current = controller;
     setCapturing(true);
     setCapture(null);
-    const result = await captureLocation(deviceLocationDeps);
-    if (!mountedRef.current) return;
-    setCapture(result);
-    if (result.kind === "ok" && result.fix.accuracyM !== null) {
+    const result = await captureLocation(deviceLocationDeps, { signal: controller.signal });
+    if (attempt !== attemptRef.current || controller.signal.aborted) return; // late or cancelled
+    setCapture(result.kind === "cancelled" ? null : result);
+    // Only an accepted fresh, real, accurate fix changes the coordinates. Mocked, stale,
+    // inaccurate, timed-out or failed attempts leave whatever the agent already had.
+    if (result.kind === "ok") {
       const { fix } = result;
       setValues((current) => ({
         ...current,
         latitude: formatCoordinate(fix.latitude),
         longitude: formatCoordinate(fix.longitude),
       }));
-      setLocationMeta({ source: "gps", accuracyM: fix.accuracyM as number, capturedAt: fix.capturedAt });
+      setLocationMeta({ source: "gps", accuracyM: fix.accuracyM, capturedAt: fix.capturedAt });
       setDirty(true);
     }
     setCapturing(false);
