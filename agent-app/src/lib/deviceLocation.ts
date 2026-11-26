@@ -1,18 +1,9 @@
 // Thin expo-location adapter for locationCore (Android, iOS and web).
-// Foreground only: no watchPositionAsync, no background tasks, no geocoding services.
+// Foreground only: no watchPositionAsync, no background tasks, no geocoding services,
+// and no last-known/cached position lookups (GEO-M1.1).
 import * as Location from "expo-location";
 
-import { LAST_KNOWN_MAX_AGE_MS, type LocationDeps, type RawFix } from "./locationCore";
-
-function toRaw(position: Location.LocationObject): RawFix {
-  return {
-    latitude: position.coords.latitude,
-    longitude: position.coords.longitude,
-    accuracy: position.coords.accuracy ?? null,
-    timestamp: position.timestamp,
-    mocked: Boolean(position.mocked),
-  };
-}
+import type { LocationDeps } from "./locationCore";
 
 export const deviceLocationDeps: LocationDeps = {
   servicesEnabled: () => Location.hasServicesEnabledAsync(),
@@ -27,11 +18,13 @@ export const deviceLocationDeps: LocationDeps = {
       // Android: lets the system offer to switch on high-accuracy location.
       mayShowUserSettingsDialog: true,
     });
-    return toRaw(position);
-  },
-  async getLastKnown(maxAgeMs = LAST_KNOWN_MAX_AGE_MS) {
-    const position = await Location.getLastKnownPositionAsync({ maxAge: maxAgeMs });
-    return position ? toRaw(position) : null;
+    return {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy: position.coords.accuracy ?? null,
+      timestamp: position.timestamp,
+      mocked: Boolean(position.mocked),
+    };
   },
   now: () => Date.now(),
 };

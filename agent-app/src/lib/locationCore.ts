@@ -1,16 +1,23 @@
-// On-demand, foreground-only GPS capture for property drafts (GEO-M1).
+// On-demand, foreground-only GPS capture for property drafts (GEO-M1, hardened in GEO-M1.1).
 // Platform-independent: no React, Expo or React Native imports, so it is tested
 // directly with Node. The device adapter lives in deviceLocation.ts.
 //
-// Privacy: a fix is taken only when the agent taps the button. Nothing here
-// watches position, runs in the background, or stores movement history.
+// Privacy and integrity rules:
+// - A fix is taken only when the agent taps the button. Nothing watches position,
+//   runs in the background, or stores movement history.
+// - Only a FRESH fix from this request is accepted. There is no last-known/cached
+//   fallback, and a fix whose own timestamp is older than FRESH_MAX_AGE_MS is refused.
+// - A fix the device reports as simulated (mock location) is refused.
+// - Results that arrive after a timeout or cancellation are ignored.
 
 export const ACCURACY_GOOD_M = 30;
 // Fixes less precise than this cannot be saved as GPS (manual entry stays available).
 export const ACCURACY_MAX_M = 100;
 export const DEFAULT_TIMEOUT_MS = 20_000;
-// A last known position is offered only if it is this recent.
-export const LAST_KNOWN_MAX_AGE_MS = 2 * 60_000;
+// Freshness is judged against the device's own clock (same clock as the fix
+// timestamp), so a wrong device clock cannot make a fresh fix look stale or vice versa.
+export const FRESH_MAX_AGE_MS = 60_000;
+export const FUTURE_TOLERANCE_MS = 60_000;
 export const COORDINATE_DECIMALS = 6; // about 0.11 m
 
 export type RawFix = {
@@ -24,33 +31,33 @@ export type RawFix = {
 export type Fix = {
   latitude: number;
   longitude: number;
-  accuracyM: number | null;
-  capturedAt: string; // ISO 8601
-  mocked: boolean;
-  lastKnown: boolean;
+  accuracyM: number;
+  capturedAt: string; // ISO 8601, the device's timestamp for this fix
 };
 
 export type Quality = "good" | "fair" | "poor";
 
 export type CaptureResult =
   | { kind: "ok"; fix: Fix; quality: "good" | "fair" }
-  | { kind: "poor_accuracy"; fix: Fix }
+  | { kind: "poor_accuracy"; accuracyM: number | null }
+  | { kind: "mocked" }
+  | { kind: "stale" }
   | { kind: "denied"; canAskAgain: boolean }
   | { kind: "gps_off" }
   | { kind: "timeout" }
+  | { kind: "cancelled" }
   | { kind: "unavailable"; reason: string };
 
 export type LocationDeps = {
   servicesEnabled(): Promise<boolean>;
   requestPermission(): Promise<{ granted: boolean; canAskAgain: boolean }>;
   getCurrent(): Promise<RawFix>;
-  getLastKnown(maxAgeMs: number): Promise<RawFix | null>;
   now(): number;
 };
 
 export type CaptureOptions = {
   timeoutMs?: number;
-  lastKnownMaxAgeMs?: number;
+  signal?: AbortSignal;
   // Injected in tests; defaults to setTimeout.
   delay?: (ms: number) => Promise<void>;
 };
@@ -75,46 +82,68 @@ function validCoordinates(raw: RawFix): boolean {
   return !(latitude === 0 && longitude === 0);
 }
 
-function toFix(raw: RawFix, lastKnown: boolean, now: number): Fix {
-  const timestamp = Number.isFinite(raw.timestamp) && raw.timestamp > 0 ? raw.timestamp : now;
-  return {
-    latitude: Number(raw.latitude.toFixed(COORDINATE_DECIMALS)),
-    longitude: Number(raw.longitude.toFixed(COORDINATE_DECIMALS)),
-    accuracyM:
-      raw.accuracy === null || !Number.isFinite(raw.accuracy) || raw.accuracy < 0
-        ? null
-        : Math.round(raw.accuracy * 10) / 10,
-    capturedAt: new Date(timestamp).toISOString(),
-    mocked: Boolean(raw.mocked),
-    lastKnown,
-  };
+function roundAccuracy(accuracy: number | null): number | null {
+  if (accuracy === null || !Number.isFinite(accuracy) || accuracy < 0) return null;
+  return Math.round(accuracy * 10) / 10;
 }
 
-function judge(raw: RawFix, lastKnown: boolean, now: number): CaptureResult {
+/** Applies every acceptance rule to a fix returned for this request. */
+export function judgeFix(raw: RawFix, now: number): CaptureResult {
+  if (raw.mocked) return { kind: "mocked" };
   if (!validCoordinates(raw)) {
     return { kind: "unavailable", reason: "The device returned an invalid position." };
   }
-  const fix = toFix(raw, lastKnown, now);
-  const quality = classifyAccuracy(fix.accuracyM);
-  if (quality === "poor") return { kind: "poor_accuracy", fix };
-  return { kind: "ok", fix, quality };
+  if (!Number.isFinite(raw.timestamp) || raw.timestamp <= 0) {
+    return { kind: "unavailable", reason: "The device returned a position without a valid time." };
+  }
+  if (raw.timestamp > now + FUTURE_TOLERANCE_MS) {
+    return { kind: "unavailable", reason: "The device returned a position with an inconsistent time." };
+  }
+  if (now - raw.timestamp > FRESH_MAX_AGE_MS) return { kind: "stale" };
+  const accuracyM = roundAccuracy(raw.accuracy);
+  if (accuracyM === null || classifyAccuracy(accuracyM) === "poor") {
+    return { kind: "poor_accuracy", accuracyM };
+  }
+  return {
+    kind: "ok",
+    quality: classifyAccuracy(accuracyM) === "good" ? "good" : "fair",
+    fix: {
+      latitude: Number(raw.latitude.toFixed(COORDINATE_DECIMALS)),
+      longitude: Number(raw.longitude.toFixed(COORDINATE_DECIMALS)),
+      accuracyM,
+      capturedAt: new Date(raw.timestamp).toISOString(),
+    },
+  };
 }
 
 const TIMED_OUT = Symbol("timed-out");
+const CANCELLED = Symbol("cancelled");
 const defaultDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+function abortPromise(signal?: AbortSignal): Promise<typeof CANCELLED> {
+  return new Promise((resolve) => {
+    if (!signal) return; // never settles
+    if (signal.aborted) {
+      resolve(CANCELLED);
+      return;
+    }
+    signal.addEventListener("abort", () => resolve(CANCELLED), { once: true });
+  });
+}
+
 /**
- * Takes one position fix after an explicit user action.
- * Order: location services → foreground permission → current fix (bounded by
- * timeout) → recent last-known fix as a labelled fallback.
+ * Takes one fresh position fix after an explicit user action.
+ * Order: location services, then foreground permission, then one current fix
+ * bounded by timeout and cancellation. No cached or last-known fallback.
  */
 export async function captureLocation(
   deps: LocationDeps,
   options: CaptureOptions = {},
 ): Promise<CaptureResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const maxAge = options.lastKnownMaxAgeMs ?? LAST_KNOWN_MAX_AGE_MS;
   const delay = options.delay ?? defaultDelay;
+  const aborted = () => Boolean(options.signal?.aborted);
+  if (aborted()) return { kind: "cancelled" };
 
   let enabled: boolean;
   try {
@@ -122,6 +151,7 @@ export async function captureLocation(
   } catch {
     return { kind: "unavailable", reason: "Location services could not be checked." };
   }
+  if (aborted()) return { kind: "cancelled" };
   if (!enabled) return { kind: "gps_off" };
 
   let permission: { granted: boolean; canAskAgain: boolean };
@@ -130,45 +160,38 @@ export async function captureLocation(
   } catch {
     return { kind: "unavailable", reason: "Location permission could not be requested." };
   }
+  if (aborted()) return { kind: "cancelled" };
   if (!permission.granted) return { kind: "denied", canAskAgain: permission.canAskAgain };
 
-  let failure: "timeout" | "error" = "error";
+  const current = deps.getCurrent();
+  // A fix (or failure) that settles after the race is decided is ignored.
+  current.catch(() => undefined);
+  let outcome: RawFix | typeof TIMED_OUT | typeof CANCELLED;
   try {
-    const outcome = await Promise.race([
-      deps.getCurrent(),
-      delay(timeoutMs).then(() => TIMED_OUT),
+    outcome = await Promise.race([
+      current,
+      delay(timeoutMs).then((): typeof TIMED_OUT => TIMED_OUT),
+      abortPromise(options.signal),
     ]);
-    if (outcome !== TIMED_OUT) return judge(outcome as RawFix, false, deps.now());
-    failure = "timeout";
   } catch {
-    failure = "error";
+    return { kind: "unavailable", reason: "The device could not determine its location." };
   }
-
-  // Fallback: a recent last-known position, clearly labelled as such.
-  try {
-    const last = await deps.getLastKnown(maxAge);
-    if (last && deps.now() - last.timestamp <= maxAge) {
-      return judge(last, true, deps.now());
-    }
-  } catch {
-    // Ignore and report the original failure.
-  }
-  return failure === "timeout"
-    ? { kind: "timeout" }
-    : { kind: "unavailable", reason: "The device could not determine its location." };
+  if (outcome === CANCELLED || aborted()) return { kind: "cancelled" };
+  if (outcome === TIMED_OUT) return { kind: "timeout" };
+  return judgeFix(outcome, deps.now());
 }
 
-/** User-facing explanation for each outcome. */
+/** User-facing explanation for each outcome ("" for a silent cancellation). */
 export function describeCapture(result: CaptureResult): string {
   switch (result.kind) {
-    case "ok": {
-      const source = result.fix.lastKnown ? "Last known location (under 2 minutes old)" : "Current location";
-      const accuracy = result.fix.accuracyM === null ? "" : ` (±${Math.round(result.fix.accuracyM)} m)`;
-      const mocked = result.fix.mocked ? " Warning: the device reports a simulated (mock) location." : "";
-      return `${source} captured${accuracy}. Review the coordinates before saving.${mocked}`;
-    }
+    case "ok":
+      return `Current location captured (±${Math.round(result.fix.accuracyM)} m). Review the coordinates before saving.`;
     case "poor_accuracy":
-      return `Location accuracy is too low (±${result.fix.accuracyM === null ? "unknown" : Math.round(result.fix.accuracyM)} m; ${ACCURACY_MAX_M} m or better is needed). Move outdoors or near a window and try again, or enter the coordinates manually.`;
+      return `Location accuracy is too low (±${result.accuracyM === null ? "unknown" : Math.round(result.accuracyM)} m; ${ACCURACY_MAX_M} m or better is needed). The coordinates were not changed. Move outdoors or near a window and try again, or enter them manually.`;
+    case "mocked":
+      return "This device is reporting a simulated (mock) location, so it cannot be used. The coordinates were not changed. Turn off any mock-location app and try again, or enter the coordinates manually.";
+    case "stale":
+      return "The device returned an old location instead of a fresh one, so it was not used. The coordinates were not changed. Try again (outdoors works best), or enter them manually.";
     case "denied":
       return result.canAskAgain
         ? "Location permission was not granted. Tap the button again to allow it, or enter the coordinates manually."
@@ -176,8 +199,10 @@ export function describeCapture(result: CaptureResult): string {
     case "gps_off":
       return "Location services are turned off. Turn on Location in your device settings, or enter the coordinates manually.";
     case "timeout":
-      return "Could not get a location fix in time. Try again (outdoors works best), or enter the coordinates manually.";
+      return "Could not get a fresh location fix in time. The coordinates were not changed. Try again (outdoors works best), or enter them manually.";
+    case "cancelled":
+      return "";
     case "unavailable":
-      return `${result.reason} Enter the coordinates manually or try again.`;
+      return `${result.reason} The coordinates were not changed. Enter them manually or try again.`;
   }
 }
