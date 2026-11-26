@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,6 +18,18 @@ from property_media import NO_CACHE, Version, bump_version, lock_draft
 
 router = APIRouter(prefix="/staff/marketing", tags=["Digital Studio"])
 VIDEO_LIMIT = 100 * 1024 * 1024
+BUNDLED_BIN = Path(__file__).resolve().parent / "bin"
+
+
+def use_bundled_tools(bin_dir=BUNDLED_BIN):
+    """Put the build-installed ffprobe (backend/bin) first on PATH when present."""
+    if (Path(bin_dir) / "ffprobe").is_file():
+        entries = os.environ.get("PATH", "").split(os.pathsep)
+        if str(bin_dir) not in entries:
+            os.environ["PATH"] = os.pathsep.join([str(bin_dir), *filter(None, entries)])
+
+
+use_bundled_tools()
 
 
 class VerifiedContact(BaseModel):
@@ -39,6 +52,18 @@ def set_verified_contact(agent_id: UUID, payload: VerifiedContact, user=Depends(
         if row is None:
             raise HTTPException(404, "Staff member not found.")
     return Response(status_code=204, headers=NO_CACHE)
+
+
+@router.get("/studio/status")
+def studio_status(user=Depends(require_admin)):
+    """Readiness flags only: never returns the bucket name, endpoint or credentials."""
+    return Response(
+        content=json.dumps({
+            "ffprobe": shutil.which("ffprobe") is not None,
+            "storage_configured": bool(os.getenv("STUDIO_S3_BUCKET")),
+        }),
+        media_type="application/json", headers=NO_CACHE,
+    )
 
 
 def validate_video(path):

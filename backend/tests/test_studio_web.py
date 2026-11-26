@@ -30,3 +30,34 @@ def test_contact_form_reads_owner_from_draft_details():
     script = (Path(__file__).resolve().parents[1] / "studio_web" / "studio.js").read_text(encoding="utf-8")
     assert "dataset.agent" not in script
     assert "/staff/properties/${encodeURIComponent(draftId)}" in script
+
+
+def test_bundled_ffprobe_directory_goes_first_on_path(tmp_path, monkeypatch):
+    import studio_inputs
+
+    monkeypatch.setenv("PATH", os.pathsep.join(["/usr/bin", "/bin"]))
+    studio_inputs.use_bundled_tools(tmp_path)  # no ffprobe there: PATH unchanged
+    assert os.environ["PATH"].split(os.pathsep)[0] == "/usr/bin"
+    (tmp_path / "ffprobe").write_bytes(b"")
+    studio_inputs.use_bundled_tools(tmp_path)
+    studio_inputs.use_bundled_tools(tmp_path)  # idempotent
+    entries = os.environ["PATH"].split(os.pathsep)
+    assert entries[0] == str(tmp_path) and entries.count(str(tmp_path)) == 1
+
+
+def test_real_ffprobe_rejects_a_non_video(tmp_path):
+    # Runs in CI after scripts/render/install-ffprobe.sh puts the pinned binary on PATH.
+    import shutil
+
+    import pytest
+    from fastapi import HTTPException
+
+    import studio_inputs
+
+    if shutil.which("ffprobe") is None:
+        pytest.skip("ffprobe is not installed here")
+    fake = tmp_path / "walkthrough.mp4"
+    fake.write_bytes(b"not a video" * 100)
+    with pytest.raises(HTTPException) as error:
+        studio_inputs.validate_video(fake)
+    assert error.value.status_code == 422

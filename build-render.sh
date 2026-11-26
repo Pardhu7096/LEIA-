@@ -11,6 +11,9 @@ npm --version
 echo "=== INSTALL BACKEND DEPENDENCIES ==="
 python -m pip install -r backend/requirements.txt
 
+echo "=== INSTALL PINNED FFPROBE (Digital Studio) ==="
+bash scripts/render/install-ffprobe.sh backend/bin
+
 echo "=== INSTALL AGENT CRM DEPENDENCIES ==="
 cd agent-app
 npm ci --include=dev
