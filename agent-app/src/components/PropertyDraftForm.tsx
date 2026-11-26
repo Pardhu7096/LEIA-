@@ -2,6 +2,8 @@ import type { StaffFetch } from "../lib/staffSession";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
+  Platform,
   Pressable,
   Switch,
   Text,
@@ -9,12 +11,21 @@ import {
   View,
 } from "react-native";
 
+import { deviceLocationDeps } from "../lib/deviceLocation";
+import {
+  captureLocation,
+  describeCapture,
+  formatCoordinate,
+  type CaptureResult,
+} from "../lib/locationCore";
 import { errorMessage, isProperty, readResponse } from "../lib/propertyApi";
 import {
   buildPayload,
   fields,
   initialValues,
+  locationMetaFromServer,
   sections,
+  type LocationMeta,
 } from "../lib/propertyFields";
 import { styles as s } from "../styles/property.styles";
 
@@ -44,6 +55,37 @@ export default function PropertyDraftForm({
   const [confirmClose, setConfirmClose] = useState(false);
   const [retry, setRetry] = useState(0);
   const savingRef = useRef(false);
+  // GEO-M1: on-demand GPS capture. Nothing runs until the agent taps the button.
+  const [locationMeta, setLocationMeta] = useState<LocationMeta | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const [capture, setCapture] = useState<CaptureResult | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  async function captureCurrentLocation() {
+    if (capturing || savingRef.current) return;
+    setCapturing(true);
+    setCapture(null);
+    const result = await captureLocation(deviceLocationDeps);
+    if (!mountedRef.current) return;
+    setCapture(result);
+    if (result.kind === "ok" && result.fix.accuracyM !== null) {
+      const { fix } = result;
+      setValues((current) => ({
+        ...current,
+        latitude: formatCoordinate(fix.latitude),
+        longitude: formatCoordinate(fix.longitude),
+      }));
+      setLocationMeta({ source: "gps", accuracyM: fix.accuracyM as number, capturedAt: fix.capturedAt });
+      setDirty(true);
+    }
+    setCapturing(false);
+  }
 
   useEffect(() => {
     if (!propertyId) return;
@@ -79,7 +121,8 @@ export default function PropertyDraftForm({
               typeof value !== "string" &&
               typeof value !== "number") ||
             (field.choices &&
-              !field.choices.some((choice) => choice[0] === value))
+              // A null choice (for example facing not recorded) maps to the "" option.
+              !field.choices.some(([choice]) => choice === (value ?? "")))
           ) {
             throw new Error("The server returned incomplete draft details.");
           }
@@ -89,6 +132,7 @@ export default function PropertyDraftForm({
           setValues(next);
           setConsent(data.listing_consent);
           setVersion(data.version);
+          setLocationMeta(locationMetaFromServer(data));
         }
       } catch (caught) {
         if (active) setLoadError(errorMessage(caught));
@@ -115,7 +159,7 @@ export default function PropertyDraftForm({
     let payload;
     try {
       payload = {
-        ...buildPayload(values, consent),
+        ...buildPayload(values, consent, locationMeta),
         ...(propertyId ? { version } : {}),
       };
     } catch (caught) {
@@ -218,6 +262,10 @@ export default function PropertyDraftForm({
                           ...current,
                           [field.key]: text,
                         }));
+                        if (field.kind === "coordinate") {
+                          // Hand-edited coordinates are no longer a GPS fix.
+                          setLocationMeta({ source: "manual" });
+                        }
                         setDirty(true);
                       }}
                       editable={!saving}
@@ -236,6 +284,57 @@ export default function PropertyDraftForm({
                   )}
                 </View>
               ))}
+              {section.title === "Location" ? (
+                <View style={s.formSection}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: saving || capturing, busy: capturing }}
+                    accessibilityHint="Asks for location permission and fills in the latitude and longitude once"
+                    disabled={saving || capturing}
+                    onPress={captureCurrentLocation}
+                    style={[s.secondary, (saving || capturing) && s.disabled]}
+                  >
+                    <Text style={s.secondaryText}>
+                      {capturing
+                        ? "Getting location..."
+                        : locationMeta?.source === "gps"
+                          ? "Recapture location"
+                          : "Use my current location"}
+                    </Text>
+                  </Pressable>
+                  {capturing ? <ActivityIndicator color="#355E4B" /> : null}
+                  {capture ? (
+                    <Text
+                      style={capture.kind === "ok" ? s.success : s.error}
+                      accessibilityRole={capture.kind === "ok" ? "text" : "alert"}
+                      accessibilityLiveRegion="polite"
+                    >
+                      {describeCapture(capture)}
+                    </Text>
+                  ) : null}
+                  {capture &&
+                  Platform.OS !== "web" &&
+                  (capture.kind === "gps_off" ||
+                    (capture.kind === "denied" && !capture.canAskAgain)) ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      style={s.secondary}
+                      onPress={() => {
+                        void Linking.openSettings();
+                      }}
+                    >
+                      <Text style={s.secondaryText}>Open app settings</Text>
+                    </Pressable>
+                  ) : null}
+                  <Text style={s.muted}>
+                    {locationMeta?.source === "gps"
+                      ? `Coordinates from GPS (±${Math.round(locationMeta.accuracyM)} m, ${new Date(locationMeta.capturedAt).toLocaleString()}). You can recapture or edit them before saving.`
+                      : locationMeta?.source === "manual" && (values.latitude || values.longitude)
+                        ? "Coordinates entered manually."
+                        : "Location is used only when you tap the button. Manual entry also works."}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           ))}
           <View style={s.consentRow}>

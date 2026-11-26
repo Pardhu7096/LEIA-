@@ -21,7 +21,12 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.leiarealestate.agent",
-      "versionCode": 2
+      "versionCode": 2,
+      "blockedPermissions": [
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.ACTIVITY_RECOGNITION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -33,6 +38,17 @@
           "photosPermission": "Allow LEIA to select property photos for listings.",
           "cameraPermission": false,
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "LEIA uses your location only when you tap \"Use my current location\" to pin a property.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false,
+          "isAndroidMotionActivityEnabled": false,
+          "isIosBackgroundLocationEnabled": false,
+          "motionUsagePermission": false
         }
       ]
     ]

@@ -41,7 +41,11 @@ JOB_TYPE = "reel_v1"
 EVENT_TYPE = "property.published"
 SNAPSHOT_SCHEMA = 1
 # Owner identity, consent and internal notes never leave the CRM.
-PRIVATE_FIELDS = frozenset({"owner_name", "owner_phone", "listing_consent", "agent_notes"})
+PRIVATE_FIELDS = frozenset({
+    "owner_name", "owner_phone", "listing_consent", "agent_notes",
+    # GEO-M1 coordinate provenance is internal review data, not marketing content.
+    "location_source", "location_accuracy_m", "location_captured_at",
+})
 # Field names come only from our model, never from request input.
 SNAPSHOT_FIELDS = tuple(
     name for name in PropertyDraft.model_fields if name not in PRIVATE_FIELDS
