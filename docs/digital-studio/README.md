@@ -76,3 +76,29 @@ or, as an admin, `POST /staff/marketing/reconcile`. Both are idempotent.
 
 Credentials, `.env` files, database dumps, raw property footage, generated videos
 and audio, caches and virtual environments. `.gitignore` covers these.
+
+## M2 walkthrough and contact intake
+
+Apply migration `012_studio_inputs.sql` before deploying the API. On the
+backend host, install `ffprobe` and configure `STUDIO_S3_BUCKET` for a private
+S3-compatible bucket. Set `STUDIO_S3_ENDPOINT_URL` for a compatible provider
+that requires a custom endpoint. Use the standard AWS SDK credential and
+region settings. The API writes objects under `walkthroughs/`. The render
+worker will need read access to this prefix.
+
+1. An admin confirms the agent's number and consent directly, then sends
+   `PUT /staff/marketing/agents/{agent_id}/verified-contact` with an
+   international phone number in `{"phone":"+919876543210"}`. Send
+   `{"phone":null}` to clear the number for future snapshots.
+2. The assigned agent or an admin sends the MP4 as the request body to
+   `PUT /staff/marketing/properties/{property_id}/walkthrough?version={version}`
+   with `Content-Type: video/mp4`. Limits are 100 MiB and 10 minutes. Use
+   the returned listing version for subsequent draft actions.
+3. Submit and approve the draft through the existing CRM workflow. Check
+   the job detail for `agent.phone`, `agent.phone_verified_at`, and a media
+   entry with `kind: walkthrough`. The walkthrough ID maps to
+   `walkthroughs/{id}.mp4` in the private bucket.
+
+Approval captures the current inputs. Existing job snapshots retain their
+original inputs. Replacing footage uses a new object key so older snapshots
+can still resolve their media.

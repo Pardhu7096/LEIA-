@@ -89,7 +89,9 @@ def build_snapshot(cursor, property_id):
     cursor.execute(
         sql.SQL("""
             SELECT {}, p.version, p.status, p.reviewed_at, p.created_by,
-                u.name AS agent_name
+                u.name AS agent_name,
+                CASE WHEN u.role IN ('agent', 'admin') THEN u.studio_phone END AS agent_phone,
+                u.studio_phone_verified_at AS agent_phone_verified_at
             FROM public.properties AS p
             LEFT JOIN public.users AS u ON u.id = p.created_by
             WHERE p.id = %s;
@@ -107,14 +109,23 @@ def build_snapshot(cursor, property_id):
         (property_id,),
     )
     media = [dict(item) for item in cursor.fetchall()]
+    walkthrough = cursor.execute(
+        "SELECT id FROM public.studio_walkthroughs WHERE property_id = %s;",
+        (property_id,),
+    ).fetchone()
+    if walkthrough:
+        media.append({"id": walkthrough["id"], "kind": "walkthrough"})
+    agent = {"id": row["created_by"], "name": row["agent_name"]}
+    if row["agent_phone"]:
+        agent["phone"] = row["agent_phone"]
+        agent["phone_verified_at"] = row["agent_phone_verified_at"]
     snapshot = {
         "schema": SNAPSHOT_SCHEMA,
         "property_id": property_id,
         "property_version": row["version"],
         "approved_at": row["reviewed_at"],
         "property": {name: row[name] for name in SNAPSHOT_FIELDS},
-        # Only the agent's name is stored: LEIA has no verified agent phone yet.
-        "agent": {"id": row["created_by"], "name": row["agent_name"]},
+        "agent": agent,
         "media": media,
     }
     return json.loads(json.dumps(snapshot, default=_json_default))
