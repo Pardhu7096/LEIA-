@@ -143,7 +143,6 @@ async function loadDrafts() {
     const option = element("option", [property.title, property.locality].filter(Boolean).join(" · "));
     option.value = property.id;
     option.dataset.version = property.version;
-    option.dataset.agent = property.created_by;
     drafts.append(option);
   }
   drafts.value = [...drafts.options].some((item) => item.value === selected) ? selected : "";
@@ -218,10 +217,13 @@ upload.addEventListener("submit", (event) => {
 
 contact.addEventListener("submit", (event) => {
   event.preventDefault();
-  const agent = drafts.selectedOptions[0]?.dataset.agent;
+  const draftId = drafts.value;
   const values = new FormData(contact);
   void run(contact.querySelector("button"), async () => {
-    if (!agent || !values.has("confirmed")) throw new Error("Choose the listing and confirm the agent’s consent.");
+    if (!draftId || !values.has("confirmed")) throw new Error("Choose the listing and confirm the agent’s consent.");
+    // The staff list returns summaries without the owner, so read the draft itself.
+    const { created_by: agent } = await request(`/staff/properties/${encodeURIComponent(draftId)}`);
+    if (!agent) throw new Error("This listing has no owning agent.");
     await request(`${marketing}/agents/${encodeURIComponent(agent)}/verified-contact`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

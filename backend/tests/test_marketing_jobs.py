@@ -454,6 +454,9 @@ def test_approval_captures_walkthrough_and_admin_verified_contact(database, http
     created = http.post("/staff/properties", json=LISTING, headers=headers(agent))
     assert created.status_code == 201, created.text
     draft = created.json()
+    # Digital Studio reads the owning agent from the draft details (summaries omit it).
+    owner = http.get(f"/staff/properties/{draft['id']}", headers=headers(admin))
+    assert owner.status_code == 200 and str(owner.json()["created_by"]) == str(agent["id"])
     upload_url = f"/staff/marketing/properties/{draft['id']}/walkthrough"
     video_headers = {"Content-Type": "video/mp4"}
     params = {"version": draft["version"]}
