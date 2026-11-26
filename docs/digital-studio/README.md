@@ -102,3 +102,12 @@ worker will need read access to this prefix.
 Approval captures the current inputs. Existing job snapshots retain their
 original inputs. Replacing footage uses a new object key so older snapshots
 can still resolve their media.
+
+## Standalone admin workspace
+
+Open `/studio/` on the LEIA backend host and sign in with a LEIA admin
+account. Choose a draft under **Listing inputs** to upload the walkthrough
+and record the verified number for the listing agent. After listing
+approval, open its job under **Marketing jobs** to verify the snapshot.
+The workspace also supports retrying failed jobs and cancelling jobs
+where the current status allows it.
