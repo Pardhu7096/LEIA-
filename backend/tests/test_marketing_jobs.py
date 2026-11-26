@@ -25,6 +25,7 @@ import auth  # noqa: E402
 import crm  # noqa: E402
 import marketing_jobs  # noqa: E402
 import migrate_crm  # noqa: E402
+import studio_inputs  # noqa: E402
 from auth import create_access_token, require_admin, require_staff  # noqa: E402
 from marketing_models import ALLOWED_TRANSITIONS, can_transition  # noqa: E402
 
@@ -133,7 +134,7 @@ def database():
             id UUID PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
             role TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP);""")
 
-    patched = (auth, crm, marketing_jobs, migrate_crm)
+    patched = (auth, crm, marketing_jobs, migrate_crm, studio_inputs)
     originals = [module.get_connection for module in patched]
     try:
         for module in patched:
@@ -151,6 +152,7 @@ def http(database):
     app = FastAPI()
     app.include_router(crm.router)
     app.include_router(marketing_jobs.router)
+    app.include_router(studio_inputs.router)
     with TestClient(app) as client:
         yield client
 
@@ -430,3 +432,51 @@ def test_list_filters_and_pagination(database, http):
     assert none == []
     bad = http.get("/staff/marketing/jobs", params={"status": "bogus"}, headers=headers(admin))
     assert bad.status_code == 422
+
+
+def test_approval_captures_walkthrough_and_admin_verified_contact(database, http, monkeypatch):
+    import boto3
+
+    uploads = []
+
+    def put_object(**kwargs):
+        uploads.append((kwargs["Key"], kwargs["Body"].read()))
+
+    monkeypatch.setenv("STUDIO_S3_BUCKET", "private-test-bucket")
+    monkeypatch.setattr(boto3, "client", lambda *args, **kwargs: SimpleNamespace(put_object=put_object))
+    monkeypatch.setattr(studio_inputs, "validate_video", lambda path: None)
+    agent, other, admin = (make_user(database, role) for role in ("agent", "agent", "admin"))
+    contact_url = f"/staff/marketing/agents/{agent['id']}/verified-contact"
+    phone = {"phone": "+919876543210"}
+    assert http.put(contact_url, headers=headers(agent), json=phone).status_code == 403
+    assert http.put(contact_url, headers=headers(admin), json=phone).status_code == 204
+
+    created = http.post("/staff/properties", json=LISTING, headers=headers(agent))
+    assert created.status_code == 201, created.text
+    draft = created.json()
+    upload_url = f"/staff/marketing/properties/{draft['id']}/walkthrough"
+    video_headers = {"Content-Type": "video/mp4"}
+    params = {"version": draft["version"]}
+    assert http.put(upload_url, params=params, headers={**headers(other), **video_headers},
+                    content=b"test-video").status_code == 404
+    uploaded = http.put(upload_url, params=params, headers={**headers(agent), **video_headers},
+                        content=b"test-video")
+    assert uploaded.status_code == 200, uploaded.text
+    media = uploaded.json()
+    assert http.put(upload_url, params=params, headers={**headers(agent), **video_headers},
+                    content=b"test-video").status_code == 409
+    assert uploads == [(f"walkthroughs/{media['id']}.mp4", b"test-video")]
+
+    submitted = http.post(
+        f"/staff/properties/{draft['id']}/submit",
+        json={"version": media["version"]},
+        headers=headers(agent),
+    )
+    assert submitted.status_code == 200, submitted.text
+    approved = approve(http, admin, submitted.json())
+    assert approved.status_code == 200, approved.text
+    [job] = jobs_for(database, draft["id"])
+    snapshot = job["property_snapshot"]
+    assert snapshot["agent"]["phone"] == phone["phone"]
+    assert snapshot["agent"]["phone_verified_at"]
+    assert snapshot["media"] == [{"id": media["id"], "kind": "walkthrough"}]

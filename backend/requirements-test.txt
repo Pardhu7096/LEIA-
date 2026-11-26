@@ -12,3 +12,5 @@ pytest>=8,<10
 groq>=0.11,<2
 
 -r requirements-media.txt
+
+boto3>=1.35,<2

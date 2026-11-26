@@ -23,6 +23,7 @@ from marketing_jobs import router as marketing_router
 from native_sessions import router as native_sessions_router
 from property_models import FacingDirection
 from rate_limits import limit_chat, limit_maps
+from studio_inputs import router as studio_inputs_router
 from nearby_places import Category, router as nearby_router, shortest_nearby_walk
 from property_media import router as media_router
 
@@ -45,6 +46,7 @@ app.include_router(crm_router)
 app.include_router(media_router)
 app.include_router(nearby_router)
 app.include_router(marketing_router)
+app.include_router(studio_inputs_router)
 
 app.add_middleware(
     CORSMiddleware,
