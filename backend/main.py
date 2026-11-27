@@ -613,6 +613,17 @@ def last_search_properties(cursor, conversation_id: UUID) -> list[dict]:
     return row["properties"] if row else []
 
 
+def inr(value: int) -> str:
+    """Indian digit grouping, matching the app's listing cards (₹62,00,000)."""
+    digits = str(int(value))
+    head, tail = digits[:-3], digits[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    return "₹" + ",".join(([head] if head else []) + groups + [tail])
+
+
 def compare_reply(cursor, conversation_id: UUID, message: str) -> str:
     properties = last_search_properties(cursor, conversation_id)
     if len(properties) < 2:
@@ -648,7 +659,7 @@ def compare_reply(cursor, conversation_id: UUID, message: str) -> str:
             continue
         blocks.append("\n".join([
             f"Listing {n}: {row['title']}",
-            f"Price: {show(row['price'], lambda v: f'₹{v:,}')}",
+            f"Price: {show(row['price'], inr)}",
             f"Bedrooms: {show(row['bedrooms'])} · Bathrooms: {show(row['bathrooms'])}",
             f"Area: {show(row['area_sqft'], lambda v: f'{v:,.0f} sq ft')}",
             f"Facing: {show(row['facing'], str.capitalize)}",

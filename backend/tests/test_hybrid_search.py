@@ -166,5 +166,5 @@ def test_request_id_header_and_comparison_from_records(hybrid):
     hybrid.chat("3 bhk in Chinthalagraharam sorted by price")
     comparison = hybrid.chat("compare listing 1 and 2")
     assert "Comparison from LEIA’s approved listing records" in comparison["reply"]
-    assert "₹5,000,000" in comparison["reply"] and "₹6,800,000" in comparison["reply"]
+    assert "₹50,00,000" in comparison["reply"] and "₹68,00,000" in comparison["reply"]
     assert not hybrid.ai.calls
