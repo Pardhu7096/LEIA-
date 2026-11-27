@@ -1,6 +1,8 @@
 import { Link, router } from "expo-router";
 import { useState } from "react";
 import {
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -84,9 +86,12 @@ export default function AuthForm({
 }
 
   return (
+    <KeyboardAvoidingView style={s.screen} behavior="padding">
     <ScrollView
       contentContainerStyle={s.page}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      automaticallyAdjustKeyboardInsets
     >
       <View style={s.card}>
         <Text style={s.brand}>LEIA ✦</Text>
@@ -165,10 +170,12 @@ export default function AuthForm({
         )}
       </View>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const s = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: "#F8FAF5" },
   page: {
     flexGrow: 1,
     justifyContent: "center",

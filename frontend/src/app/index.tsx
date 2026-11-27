@@ -3,7 +3,9 @@ import { useRef, useState, type ComponentRef } from "react";
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -11,6 +13,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import ContactLEIA from "../components/ContactLEIA";
 import PropertyView from "../components/PropertyView";
@@ -127,7 +130,10 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={styles.screen}>
+    // Android is edge-to-edge (Expo SDK 58), so the window no longer resizes for the keyboard:
+    // pad for it explicitly and keep the header/composer clear of the system bars.
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+    <KeyboardAvoidingView style={styles.screen} behavior="padding">
       <View style={styles.header}>
         <Text style={styles.brand}>LEIA ✦</Text>
 
@@ -189,6 +195,7 @@ export default function HomeScreen() {
             style={styles.scroll}
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
             onContentSizeChange={() => {
               scrollRef.current?.scrollToEnd({ animated: true });
             }}
@@ -357,6 +364,7 @@ export default function HomeScreen() {
           onClose={closeListing}
         />
       ) : null}
-    </View>
+    </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }

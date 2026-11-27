@@ -200,15 +200,16 @@ export default function App() {
   const canLogin = Boolean(email.trim() && password) && !busy;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    // Android is edge-to-edge (Expo SDK 58): the window no longer resizes for the keyboard,
+    // so pad for it on both platforms.
+    <KeyboardAvoidingView style={styles.screen} behavior="padding">
       <StatusBar barStyle="dark-content" />
 
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        automaticallyAdjustKeyboardInsets
       >
         <View
           style={[

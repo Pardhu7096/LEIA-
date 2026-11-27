@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
+import logging
+
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +23,9 @@ from crm import router as crm_router
 from database import get_connection
 from marketing_jobs import router as marketing_router
 from native_sessions import router as native_sessions_router
+import ai_guard
+import search_parser
+from observability import SearchEvent, install_request_ids
 from property_models import FacingDirection
 from rate_limits import limit_chat, limit_maps
 from studio_inputs import router as studio_inputs_router
@@ -40,6 +45,7 @@ client = Groq(
 )
 
 app = FastAPI()
+install_request_ids(app)
 app.include_router(auth_router)
 app.include_router(native_sessions_router)
 app.include_router(crm_router)
@@ -71,6 +77,11 @@ class SearchFilters(BaseModel):
     location: str | None = Field(default=None, max_length=100)
     property_type: Literal["flat", "independent_house", "plot"] | None = None
     facing: FacingDirection | None = None
+    min_area_sqft: int | None = Field(default=None, ge=1, le=1_000_000)
+    max_area_sqft: int | None = Field(default=None, ge=1, le=1_000_000)
+    parking: bool | None = None
+    power_backup: bool | None = None
+    sort: Literal["price_asc", "price_desc", "newest", "area_desc"] | None = None
 
 
 class SearchRequirements(SearchFilters):
@@ -200,8 +211,19 @@ Rules:
 """
 
 
+ORDER_BY = {
+    None: "reviewed_at DESC NULLS LAST, p.id",
+    "newest": "reviewed_at DESC NULLS LAST, p.id",
+    "price_asc": "price ASC NULLS LAST, p.id",
+    "price_desc": "price DESC NULLS LAST, p.id",
+    "area_desc": "area_sqft DESC NULLS LAST, p.id",
+}
+
+
 def filter_properties(filters: SearchFilters) -> list[dict]:
     location = filters.location.strip() if filters.location else None
+    keys = search_parser.location_keys(location)
+    order_by = ORDER_BY[filters.sort]  # fixed whitelist, never user text
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -226,42 +248,55 @@ def filter_properties(filters: SearchFilters) -> list[dict]:
                     AND (%(location)s::text IS NULL
                         OR lower(locality) = lower(%(location)s)
                         OR lower(city) = lower(%(location)s)
-                        OR lower(concat_ws(', ', locality, city)) = lower(%(location)s))
+                        OR lower(concat_ws(', ', locality, city)) = lower(%(location)s)
+                        OR regexp_replace(lower(coalesce(locality, '')), '[^a-z0-9ఀ-౿]', '', 'g')
+                            = ANY(%(location_keys)s::text[])
+                        OR regexp_replace(lower(coalesce(city, '')), '[^a-z0-9ఀ-౿]', '', 'g')
+                            = ANY(%(location_keys)s::text[]))
                     AND (%(property_type)s::text IS NULL OR property_type = %(property_type)s)
                     AND (%(facing)s::text IS NULL OR p.facing = %(facing)s)
-                ORDER BY reviewed_at DESC NULLS LAST, p.id
+                    AND (%(min_area_sqft)s::numeric IS NULL OR area_sqft >= %(min_area_sqft)s)
+                    AND (%(max_area_sqft)s::numeric IS NULL OR area_sqft <= %(max_area_sqft)s)
+                    AND (%(parking)s::boolean IS NOT TRUE
+                        OR coalesce(car_parking_spaces, 0) > 0 OR parking_type IN ('open', 'covered', 'both'))
+                    AND (%(power_backup)s::boolean IS NOT TRUE
+                        OR power_backup IN ('common_areas', 'partial_home', 'full_home'))
+                ORDER BY """ + order_by + """
                 LIMIT 30
                 """,
-                {**filters.model_dump(), "location": location or None},
+                {**filters.model_dump(), "location": location or None, "location_keys": keys or []},
             )
             return cursor.fetchall()
 
 
-def generate_chat_reply(request: ChatRequest) -> dict:
+def extraction_messages(message: str, previous_filters: dict) -> list[dict]:
+    # Bounded input: the current filters and this message only, never conversation history.
+    return [
+        {"role": "system", "content": EXTRACTION_PROMPT},
+        {"role": "user", "content": json.dumps({"current_filters": previous_filters, "message": message})},
+    ]
+
+
+def generate_chat_reply(request: ChatRequest, extract=None) -> dict:
+    """AI path: the model returns schema-validated filters; PostgreSQL returns the facts.
+
+    ``extract`` (messages -> content) lets the router supply a budget-guarded, cached call.
+    """
     message = request.message.strip()
     previous_filters = request.filters.model_dump()
 
     try:
-        completion = client.chat.completions.create(
-            model="openai/gpt-oss-20b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": EXTRACTION_PROMPT,
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps({
-                        "current_filters": previous_filters,
-                        "message": message,
-                    }),
-                },
-            ],
-            temperature=0,
-            max_completion_tokens=800,
-        )
-
-        content = completion.choices[0].message.content or ""
+        messages = extraction_messages(message, previous_filters)
+        if extract is None:
+            completion = client.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=messages,
+                temperature=0,
+                max_completion_tokens=800,
+            )
+            content = completion.choices[0].message.content or ""
+        else:
+            content = extract(messages)
         requirements = SearchRequirements.model_validate_json(content)
 
         if requirements.intent == "reset":
@@ -283,7 +318,7 @@ def generate_chat_reply(request: ChatRequest) -> dict:
 
         if requirements.intent == "clarify":
             return {
-                "reply": requirements.question or (
+                "reply": safe_clarification(requirements.question) or (
                     "Could you clarify your location, budget, "
                     "bedrooms, or preferred property type?"
                 ),
@@ -367,6 +402,272 @@ def generate_chat_reply(request: ChatRequest) -> dict:
                 "Try '2 BHK under 70 lakh in Lankelapalem'."
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Hybrid customer search: deterministic first, budget-guarded AI only when needed.
+# ---------------------------------------------------------------------------
+UNVERIFIED_CLAIMS = re.compile(
+    r"(?:\d|₹|\brs\b|lakh|crore|\bkm\b|minutes?|verified|guarantee|rera|approved|available|"
+    r"builder|possession|loan|emi|school|hospital|phone|call\b|whatsapp)", re.I)
+BLOCKED_REPLY = ("I can only help with searching LEIA's approved property listings. "
+                 "Try something like “3 BHK under 65 lakh in Vepagunta”.")
+IRRELEVANT_REPLY = ("I’m LEIA, a property search assistant for Visakhapatnam. I can’t help with that, "
+                    "but I can find approved listings by budget, BHK, locality, facing, or size.")
+GREETING_REPLY = ("Hi! I’m LEIA. Tell me your location, budget, "
+                  "and preferred bedrooms, or update your current search. ")
+AI_FALLBACK_REPLY = ("I couldn’t interpret that request right now, so I haven’t changed your search. "
+                     "Try a simple search such as “3 BHK under 65 lakh in Vepagunta” or "
+                     "“north-facing flats in Madhurawada”.")
+COMPARE_QUESTION = re.compile(
+    r"\b(?:compare|comparison|difference between|vs\.?|versus|which (?:one )?is (?:cheaper|bigger|larger|better))\b"
+    r"|పోల్చ|తేడా", re.I)
+INFO_QUESTION = re.compile(r"^\s*(?:is|are|does|do|has|have|what|when|who|which builder|ఉందా|ఉన్నాయా)\b|\?\s*$", re.I)
+
+
+def safe_clarification(question: str | None) -> str | None:
+    """AI clarifications may not state facts (prices, availability, approvals, distances)."""
+    if not question:
+        return None
+    if UNVERIFIED_CLAIMS.search(question):
+        return "Could you clarify your location, budget, bedrooms, or preferred property type?"
+    return question
+
+
+def unsupported_note(labels: list[str]) -> str:
+    if not labels:
+        return ""
+    names = ", ".join(labels)
+    return (f"LEIA doesn’t have verified information on {names} for its listings yet, so I haven’t "
+            f"filtered by it. Please confirm {names} with the LEIA agent before deciding.")
+
+
+def merge_filters(previous: dict, updates: dict) -> SearchFilters:
+    updates = dict(updates)
+    if updates.get("max_price") is not None and "min_price" not in updates:
+        updates["min_price"] = None
+    if updates.get("min_price") is not None and "max_price" not in updates:
+        updates["max_price"] = None
+    return SearchFilters.model_validate({**previous, **updates})
+
+
+def range_problem(filters: SearchFilters) -> str | None:
+    if filters.min_price is not None and filters.max_price is not None and filters.min_price > filters.max_price:
+        return "Your minimum budget exceeds your maximum. What price range should I use?"
+    if (filters.min_area_sqft is not None and filters.max_area_sqft is not None
+            and filters.min_area_sqft > filters.max_area_sqft):
+        return "Your minimum size is larger than your maximum. What size range should I use?"
+    return None
+
+
+def suggest_alternatives(filters: SearchFilters) -> list[str]:
+    """Report which single relaxations would return listings; never applies them silently."""
+    current = filters.model_dump()
+    options = []
+    if current.get("max_price"):
+        bigger = round(current["max_price"] * 1.15)
+        options.append(({"max_price": bigger}, f"raise the budget to {search_parser._fmt_money(bigger)}"))
+    relax = [
+        (("facing",), "remove the facing preference"),
+        (("location",), "search all localities"),
+        (("bedrooms",), "allow any bedroom count"),
+        (("property_type",), "include all property types"),
+        (("parking",), "drop the parking requirement"),
+        (("power_backup",), "drop the power-backup requirement"),
+        (("min_area_sqft", "max_area_sqft"), "allow any size"),
+    ]
+    for fields, label in relax:
+        if any(current.get(name) for name in fields):
+            options.append(({name: None for name in fields}, label))
+    found = []
+    for change, label in options[:6]:
+        try:
+            count = len(filter_properties(SearchFilters.model_validate({**current, **change})))
+        except Exception:  # noqa: BLE001
+            break
+        if count:
+            found.append(f"{label} ({count} listing{'s' if count != 1 else ''})")
+        if len(found) == 3:
+            break
+    return found
+
+
+def run_search(filters: SearchFilters, event: SearchEvent, notes: list[str], unsupported: list[str]) -> dict:
+    try:
+        matches = filter_properties(filters)
+    except Exception:
+        event.set(db_error=True)
+        raise
+    event.set(deterministic_searches=event.data["deterministic_searches"] + 1,
+              results=len(matches), empty_result=not matches)
+    if matches:
+        noun = "listing" if len(matches) == 1 else "listings"
+        lines = [f"I found {len(matches)} approved {noun} for {search_parser.describe(filters.model_dump())}."]
+    else:
+        lines = [NO_MATCHES_REPLY]
+        alternatives = suggest_alternatives(filters)
+        if alternatives:
+            lines.append("Listings exist if you " + "; or ".join(alternatives) + ".")
+    lines += [line for line in (*notes, unsupported_note(unsupported)) if line]
+    return {"reply": "\n\n".join(lines), "properties": matches, "filters": filters.model_dump()}
+
+
+def answer_customer_search(message: str, saved: SearchFilters, user: dict, event: SearchEvent) -> dict:
+    previous = saved.model_dump()
+    same = {"properties": [], "filters": previous}
+    parsed = search_parser.parse(message)
+    event.set(language=parsed.language, unsupported=parsed.unsupported)
+
+    if parsed.kind == "blocked":
+        event.set(route="blocked")
+        return {"reply": IRRELEVANT_REPLY if parsed.question == "irrelevant" else BLOCKED_REPLY, **same}
+    if parsed.kind == "conversation":
+        event.set(route="deterministic")
+        return {"reply": GREETING_REPLY, **same}
+    if parsed.kind == "reset":
+        event.set(route="deterministic")
+        return {"reply": RESET_REPLY, "properties": [], "filters": SearchFilters().model_dump()}
+    if parsed.kind == "clarify":
+        event.set(route="clarify")
+        return {"reply": parsed.question, **same}
+    if parsed.kind == "show_all":
+        event.set(route="deterministic")
+        return run_search(SearchFilters(), event, [], [])
+    if parsed.kind == "search":
+        if not parsed.updates and parsed.unsupported and INFO_QUESTION.search(message):
+            event.set(route="deterministic")
+            return {"reply": unsupported_note(parsed.unsupported), **same}
+        filters = merge_filters(previous, parsed.updates)
+        problem = range_problem(filters)
+        if problem:
+            event.set(route="clarify")
+            return {"reply": problem, **same}
+        event.set(route="deterministic")
+        return run_search(filters, event, parsed.notes, parsed.unsupported)
+
+    # needs_ai: natural language the deterministic parser could not fully account for.
+    settings = ai_guard.load_settings()
+    if len(message) > settings.max_message_chars:
+        event.set(route="clarify", fallback_reason="input_too_large")
+        return {"reply": "That message is too long for me to interpret. Please describe the home you want "
+                         "in one or two short sentences.", **same}
+    usage = ai_guard.Usage()
+
+    def extract(messages):
+        key = ai_guard.SingleFlightCache.key(settings.model, EXTRACTION_PROMPT, messages[-1]["content"])
+
+        def call():
+            completion = ai_guard.guarded_completion(str(user["id"]), client.chat.completions.create,
+                                                     messages, usage)
+            return completion.choices[0].message.content or ""
+
+        content, hit = ai_guard.extraction_cache.get_or_compute(key, settings.cache_ttl_s, call)
+        usage.cache_hit = hit
+        return content
+
+    try:
+        result = generate_chat_reply(ChatRequest(message=message, filters=saved), extract=extract)
+    except ai_guard.AIUnavailable as error:
+        event.add_usage(usage)
+        event.set(route="fallback", fallback_reason=error.reason)
+        return ai_fallback(parsed, previous, event)
+    except HTTPException as error:
+        event.add_usage(usage)
+        event.set(route="fallback",
+                  fallback_reason="invalid_ai_output" if error.status_code == 502 else "provider_error")
+        return ai_fallback(parsed, previous, event)
+    event.add_usage(usage)
+    event.set(route="ai", cache="hit" if usage.cache_hit else "miss", results=len(result["properties"]),
+              empty_result=not result["properties"] and result["reply"] == NO_MATCHES_REPLY)
+    note = unsupported_note(parsed.unsupported)
+    if note:
+        result["reply"] = f"{result['reply']}\n\n{note}"
+    return result
+
+
+def ai_fallback(parsed, previous: dict, event: SearchEvent) -> dict:
+    """Ordinary property search with whatever was understood deterministically."""
+    if parsed.updates:
+        filters = merge_filters(previous, parsed.updates)
+        if not range_problem(filters):
+            understood = search_parser.describe(filters.model_dump())
+            notes = [f"I couldn’t interpret part of your message (“{' '.join(parsed.leftover[:5])}”), "
+                     f"so I searched using what I understood: {understood}."]
+            return run_search(filters, event, notes, parsed.unsupported)
+    return {"reply": AI_FALLBACK_REPLY, "properties": [], "filters": previous}
+
+
+def last_search_properties(cursor, conversation_id: UUID) -> list[dict]:
+    cursor.execute(
+        """
+        SELECT properties
+        FROM chat_messages
+        WHERE conversation_id = %s AND role = 'assistant'
+            AND (properties <> '[]'::jsonb OR content IN (%s, %s) OR starts_with(content, %s))
+        ORDER BY id DESC
+        LIMIT 1;
+        """,
+        (conversation_id, RESET_REPLY, NO_MATCHES_REPLY, NO_MATCHES_REPLY),
+    )
+    row = cursor.fetchone()
+    return row["properties"] if row else []
+
+
+def inr(value: int) -> str:
+    """Indian digit grouping, matching the app's listing cards (₹62,00,000)."""
+    digits = str(int(value))
+    head, tail = digits[:-3], digits[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    return "₹" + ",".join(([head] if head else []) + groups + [tail])
+
+
+def compare_reply(cursor, conversation_id: UUID, message: str) -> str:
+    properties = last_search_properties(cursor, conversation_id)
+    if len(properties) < 2:
+        return ("Search for properties in this chat first, then ask me to compare listings, "
+                "e.g. “compare listing 1 and 2”.")
+    numbers = [int(n) for n in re.findall(r"\b(\d{1,2})\b", message)]
+    picks = list(dict.fromkeys(numbers)) if len(set(numbers)) >= 2 else [1, 2]
+    if any(not 1 <= n <= len(properties) for n in picks) or len(picks) > 4:
+        return f"Choose two to four listing numbers between 1 and {len(properties)}, e.g. “compare listing 1 and 2”."
+    ids = []
+    for n in picks:
+        try:
+            ids.append(UUID(str(properties[n - 1]["id"])))
+        except (KeyError, ValueError):
+            return "One of those listings can’t be compared. Try a new search."
+    cursor.execute(
+        """SELECT id, title, price, bedrooms, bathrooms, area_sqft::double precision AS area_sqft, facing,
+                  concat_ws(', ', nullif(locality, ''), nullif(city, '')) AS location, car_parking_spaces
+           FROM public.properties
+           WHERE id = ANY(%s) AND status = 'approved' AND availability = 'available'""",
+        (ids,),
+    )
+    rows = {row["id"]: row for row in cursor.fetchall()}
+
+    def show(value, fmt=str):
+        return fmt(value) if value not in (None, "") else "Not listed"
+
+    blocks = []
+    for n, listing_id in zip(picks, ids):
+        row = rows.get(listing_id)
+        if row is None:
+            blocks.append(f"Listing {n}: no longer available.")
+            continue
+        blocks.append("\n".join([
+            f"Listing {n}: {row['title']}",
+            f"Price: {show(row['price'], inr)}",
+            f"Bedrooms: {show(row['bedrooms'])} · Bathrooms: {show(row['bathrooms'])}",
+            f"Area: {show(row['area_sqft'], lambda v: f'{v:,.0f} sq ft')}",
+            f"Facing: {show(row['facing'], str.capitalize)}",
+            f"Location: {show(row['location'])}",
+            f"Car parking spaces: {show(row['car_parking_spaces'])}",
+        ]))
+    return ("Comparison from LEIA’s approved listing records:\n\n" + "\n\n".join(blocks)
+            + "\n\nDetails marked “Not listed” haven’t been verified. Please confirm them with the agent.")
 
 
 @app.get("/health")
@@ -477,19 +778,7 @@ def get_conversation(
 
 
 def temple_walk_reply(cursor, conversation_id: UUID, message: str, user: dict) -> tuple[str, str]:
-    cursor.execute(
-        """
-        SELECT properties
-        FROM chat_messages
-        WHERE conversation_id = %s AND role = 'assistant'
-            AND (properties <> '[]'::jsonb OR content IN (%s, %s))
-        ORDER BY id DESC
-        LIMIT 1;
-        """,
-        (conversation_id, RESET_REPLY, NO_MATCHES_REPLY),
-    )
-    last_search = cursor.fetchone()
-    properties = last_search["properties"] if last_search else []
+    properties = last_search_properties(cursor, conversation_id)
     if not properties:
         reply = "Search for a property in this chat first, then ask about the nearest temple."
         return reply, reply
@@ -632,9 +921,21 @@ def selected_listing_reply(cursor, property_id: UUID, message: str, user: dict) 
     if re.fullmatch(r"(?:tell me about (?:it|this property)|(?:show|property|listing) details)[.!?]?", message, re.I):
         requested = [(field, label) for field, _, label in PROPERTY_FACTS]
 
+    unverified = [label for label, terms in search_parser.UNSUPPORTED_TERMS.items()
+                  if label != "rent" and any(re.search(search_parser._term_pattern(term), message.lower())
+                                             for term in terms)]
+    if unverified:
+        names = ", ".join(unverified)
+        reply = (
+            f"LEIA hasn’t verified {names} for {listing['title']}. "
+            "Please confirm this with the LEIA agent before deciding."
+        )
+        if not requested:
+            return reply, reply
+
     if not requested:
         reply = (
-            f"I don’t have that detail for {listing['title']}. "
+            f"I don’t have that detail for {listing['title']}, and LEIA hasn’t verified it. "
             "You can ask about its price, size, bedrooms, bathrooms, location, parking, "
             "maintenance, facing direction, or nearby places."
         )
@@ -696,22 +997,50 @@ def chat(
                 conversation["filters"]
             )
 
+            event = SearchEvent()
             if request.property_id is not None:
                 response.headers["Cache-Control"] = "no-store"
+                event.set(route="listing")
                 reply, saved_reply = selected_listing_reply(cursor, request.property_id, message, user)
                 result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
             elif TEMPLE_WALK_QUESTION.search(message):
                 response.headers["Cache-Control"] = "no-store"
+                event.set(route="listing")
                 reply, saved_reply = temple_walk_reply(cursor, request.conversation_id, message, user)
                 result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
-            else:
-                result = generate_chat_reply(
-                    ChatRequest(
-                        message=message,
-                        filters=saved_filters,
-                    )
-                )
+            elif COMPARE_QUESTION.search(message):
+                event.set(route="compare")
+                reply = compare_reply(cursor, request.conversation_id, message)
+                saved_reply = reply
+                result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
+            elif os.getenv("LEIA_SEARCH_ROUTER", "hybrid").strip().lower() == "ai":
+                # Legacy AI-first routing (still budget-guarded); kept for comparison and rollback.
+                usage = ai_guard.Usage()
+
+                def guarded_extract(messages):
+                    completion = ai_guard.guarded_completion(
+                        str(user["id"]), client.chat.completions.create, messages, usage)
+                    return completion.choices[0].message.content or ""
+
+                event.set(route="ai")
+                try:
+                    result = generate_chat_reply(
+                        ChatRequest(message=message, filters=saved_filters), extract=guarded_extract)
+                except ai_guard.AIUnavailable as error:
+                    event.set(route="fallback", fallback_reason=error.reason)
+                    result = {"reply": AI_FALLBACK_REPLY, "properties": [],
+                              "filters": saved_filters.model_dump()}
+                finally:
+                    event.add_usage(usage)
                 saved_reply = result["reply"]
+            else:
+                try:
+                    result = answer_customer_search(message, saved_filters, user, event)
+                finally:
+                    event.emit()
+                saved_reply = result["reply"]
+            if "latency_ms" not in event.data:
+                event.emit()
 
             updated_filters = SearchFilters.model_validate(
                 result["filters"]
