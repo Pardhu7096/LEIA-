@@ -1241,6 +1241,12 @@ def saved_chat_setup(database, facing_search_records, monkeypatch):
 
     # Rate limiting has independent regression coverage.
     monkeypatch.setattr(main, "limit_chat", lambda user: None)
+    # These scenarios cover the AI-first path (mocked provider), still through the cost guard.
+    import ai_guard
+    import rate_limits
+    monkeypatch.setenv("LEIA_SEARCH_ROUTER", "ai")
+    monkeypatch.setattr(ai_guard, "get_connection", database)
+    monkeypatch.setattr(rate_limits, "get_connection", database)
 
     customer = staff(database, "customer")
     stranger = staff(database, "customer")
