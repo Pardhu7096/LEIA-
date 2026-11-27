@@ -39,7 +39,7 @@ Branch `feature/pilot-readiness-2026-11`, cut from `staging/render-leia` at `359
 - **Regression**:
   - **374 backend tests pass**, 1 skipped (the ffprobe check, which needs Linux).
   - Both apps pass type-check, lint and their unit tests.
-  - GitHub CI on the branch: see §9.
+  - GitHub CI on the branch is green: crm-api and agent-app.
 - **Pilot readiness**: the search backend is ready for **staging verification**, but not for a commercial pilot yet. The blockers are in §12. The biggest product gap: the database has **no fields for builder name, RERA number, possession date or most amenities**. Builder listings for the six pilot builders can't show these as verified facts until those fields exist.
 
 ## 2. Original architecture and problems found
@@ -247,7 +247,7 @@ D:\LEIA\backend\.venv\Scripts\python.exe -X utf8 -I backend/tests/eval/runner.py
 - Customer: `tsc` and `expo lint` clean; session tests 23/23.
 - Agent CRM: `tsc` and `eslint` clean; forms 23/23, location 19/19, staff session 9/9.
 
-**GitHub CI** on `001eb43` (pushed branch): see the result appended at the end of this report.
+**GitHub CI** on `001eb43` (pushed branch): **crm-api success, agent-app success.** Every new step ran and passed on Ubuntu with PostgreSQL 16: chat filters + facing + evaluation; hybrid search; AI guard. The Studio ffprobe test also ran there.
 
 **Not run:** EAS or Android builds (not authorised), web export, device tests.
 
