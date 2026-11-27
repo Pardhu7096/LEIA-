@@ -55,3 +55,13 @@ jobs:
       - run: python -m pytest backend/tests/test_marketing_jobs.py -q
         env:
           TEST_DATABASE_URL: postgresql://postgres:crm-test-only@localhost:5432/leia_marketing_test
+      # Pilot search: parser, chat filters and the 100-question evaluation (mocked Groq, no database).
+      - run: python -m pytest backend/tests/test_chat_filters.py backend/tests/test_facing.py backend/tests/test_search_eval.py -q
+      # Hybrid /chat and the AI cost guard each need their own empty database.
+      - run: psql postgresql://postgres:crm-test-only@localhost:5432/crm_test -c 'CREATE DATABASE leia_test;' -c 'CREATE DATABASE leia_ai_test;'
+      - run: python -m pytest backend/tests/test_hybrid_search.py -q
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:crm-test-only@localhost:5432/leia_test
+      - run: python -m pytest backend/tests/test_ai_guard.py -q
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:crm-test-only@localhost:5432/leia_ai_test
