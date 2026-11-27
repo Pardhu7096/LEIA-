@@ -140,10 +140,10 @@ export default function PropertyView({ property, messages, loading, error, onAsk
         ) : null}
 
         {activeTab === "ask" ? (
-          <KeyboardAvoidingView style={tourStyles.viewerArea}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <KeyboardAvoidingView style={tourStyles.viewerArea} behavior="padding">
             <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={styles.content}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
               onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
               {messages.length === 0 ? (
                 <Text style={styles.subtitle}>Ask about the size, price, parking, or nearby places.</Text>
