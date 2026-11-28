@@ -78,6 +78,15 @@ export default function PropertyView({ property, messages, loading, error, onAsk
             <Text accessibilityRole="header" style={tourStyles.title}>{property.title}</Text>
             <Text style={styles.subtitle}>{[property.price, property.location].filter(Boolean).join(" · ")}</Text>
             <Text style={tourStyles.summaryDetails}>{property.details}</Text>
+            {property.facts?.length ? (
+              <View accessibilityLabel="Project details">
+                {property.facts.map((fact) => (
+                  <Text key={fact.label} style={tourStyles.summaryDetails}>
+                    {fact.label}: {fact.value}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
           </View>
           <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close property"
             style={tourStyles.close}>
