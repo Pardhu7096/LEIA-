@@ -47,7 +47,18 @@ $nativeLine = ($badging | Where-Object { $_ -like 'native-code:*' } | Select-Obj
 if ($nativeLine) { $abis = @([regex]::Matches($nativeLine, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value }) }
 $perms = @(Invoke-Tool { & $aapt dump permissions $Apk } | ForEach-Object {
         $m = [regex]::Match($_, "uses-permission: name='([^']+)'"); if ($m.Success) { $m.Groups[1].Value } })
-$forbidden = @($perms | Where-Object { $tc.forbidden_permissions -contains $_ })
+# Global forbidden permissions plus the matching app's own list (toolchain.json apps.<app>.forbidden_permissions).
+$appId = Get-Match @($pkgLine) "name='([^']+)'"
+$forbiddenList = @($tc.forbidden_permissions)
+foreach ($p in $tc.apps.PSObject.Properties) {
+    if ($p.Value.application_id -eq $appId -and ($p.Value.PSObject.Properties.Name -contains 'forbidden_permissions')) { $forbiddenList += @($p.Value.forbidden_permissions) }
+}
+$forbidden = @($perms | Where-Object { $forbiddenList -contains $_ })
+# Release hardening: not debuggable, no cleartext HTTP, no Expo development launcher/menu.
+$debuggable = [bool]($badging | Where-Object { $_ -match '^application-debuggable' })
+$manifestTree = Invoke-Tool { & $aapt dump xmltree $Apk AndroidManifest.xml }
+$cleartext = [bool]($manifestTree | Where-Object { $_ -match 'android:usesCleartextTraffic\(0x[0-9a-f]+\)=\(type 0x12\)0xffffffff' })
+$devTooling = @($manifestTree | Where-Object { $_ -match 'expo\.modules\.devlauncher|expo\.modules\.devmenu|DevSettingsActivity' } | ForEach-Object { $_.Trim() })
 
 $sig = Invoke-Tool { & $java -jar $apksignerJar verify --verbose --print-certs $Apk }
 $verifies = [bool]($sig | Where-Object { $_ -eq 'Verifies' })
@@ -59,9 +70,11 @@ $schemes = @($sig | Where-Object { $_ -match '^Verified using (v[\d.]+) scheme .
 # Baked API host(s) from the Hermes bundle (strings only; no execution).
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $hosts = @()
+$jsBundle = $false
 $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Apk).Path)
 try {
     $entry = $zip.GetEntry('assets/index.android.bundle')
+    $jsBundle = [bool]$entry
     if ($entry) {
         $ms = New-Object System.IO.MemoryStream
         $s = $entry.Open(); $s.CopyTo($ms); $s.Dispose()
@@ -75,7 +88,7 @@ $result = [ordered]@{
     file                = (Split-Path -Leaf $Apk)
     sha256              = (Get-FileHash -LiteralPath $Apk -Algorithm SHA256).Hash.ToLower()
     size_bytes          = (Get-Item -LiteralPath $Apk).Length
-    application_id      = Get-Match @($pkgLine) "name='([^']+)'"
+    application_id      = $appId
     version_code        = [int](Get-Match @($pkgLine) "versionCode='(\d+)'")
     version_name        = Get-Match @($pkgLine) "versionName='([^']+)'"
     label               = Get-Match $badging "^application-label:'(.+)'$"
@@ -85,6 +98,10 @@ $result = [ordered]@{
     abis                = $abis
     permissions         = $perms
     forbidden_permissions_found = $forbidden
+    debuggable          = $debuggable
+    cleartext_traffic   = $cleartext
+    dev_tooling_found   = $devTooling
+    js_bundle_embedded  = $jsBundle
     signature_verifies  = $verifies
     signing_schemes     = $schemes
     signer_cert_sha256  = $signers

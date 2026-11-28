@@ -17,9 +17,10 @@
 .EXAMPLE
   .\build-android.ps1 -App customer -Commit c84a473 -ApiUrl https://leia-backend-staging.onrender.com
 .EXAMPLE
-  # Release signing (only after the owner has created the keystore; see docs/android/SIGNING.md)
-  $env:LEIA_KEYSTORE_PASSWORD = '<from password manager>'   # set in this window only
-  .\build-android.ps1 -App customer -Commit <sha> -ApiUrl <url> -Signing release -KeystorePath E:\leia-release.jks -KeyAlias leia-upload
+  # Release signing: a separate upload key per app (docs/android/SIGNING.md). The script asks for the
+  # keystore password with a hidden prompt; never type it into a command line (it would land in
+  # PowerShell's history file). The alias defaults to toolchain.json apps.<app>.release_key_alias.
+  .\build-android.ps1 -App customer -Commit <sha> -ApiUrl <url> -Signing release -KeystorePath D:\LEIA-signing\leia-customer-upload.p12
 #>
 [CmdletBinding()]
 param(
@@ -93,14 +94,55 @@ foreach ($dir in @($tc.caches.gradle_user_home, $tc.caches.npm_cache, $tc.caches
 }
 
 # ------------------------------------------------------------------ signing inputs
+$script:ksPass = $null
+function Invoke-WithKeystorePassword([scriptblock]$Command) {
+    # The password lives only in memory as a SecureString. It is placed in this process's
+    # environment just for the one keytool/apksigner call that reads it (env:, never argv),
+    # then removed, so npm install scripts, Expo and Gradle never inherit it.
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($script:ksPass)
+    try {
+        $env:LEIA_KEYSTORE_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+        & $Command
+    } finally {
+        Remove-Item Env:LEIA_KEYSTORE_PASSWORD -ErrorAction SilentlyContinue
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+}
 if ($Signing -eq 'release') {
-    if (-not $KeystorePath -or -not $KeyAlias) { Fail 'release signing needs -KeystorePath and -KeyAlias' }
+    if (-not $KeystorePath) { Fail 'release signing needs -KeystorePath' }
+    if (-not $KeyAlias) { $KeyAlias = Get-Prop $appCfg 'release_key_alias' }
+    if (-not $KeyAlias) { Fail "no -KeyAlias and no toolchain.json apps.$App.release_key_alias" }
     if (-not (Test-Path -LiteralPath $KeystorePath -PathType Leaf)) { Fail "keystore not found: $KeystorePath" }
     $ksFull = (Resolve-Path -LiteralPath $KeystorePath).Path
-    if ($ksFull.StartsWith($RepoPath, [StringComparison]::OrdinalIgnoreCase)) { Fail 'keystore must not live inside the Git repository' }
-    if (-not $env:LEIA_KEYSTORE_PASSWORD) { Fail 'set LEIA_KEYSTORE_PASSWORD in this window (never in files)' }
-    if (-not $tc.signing.release_cert_sha256) { Fail 'toolchain.json has no release_cert_sha256; record the approved fingerprint first' }
-    $expectedSigner = $tc.signing.release_cert_sha256.ToLower()
+    # Compare whole path segments: D:\LEIA-signing is outside the repository D:\LEIA.
+    $sep = [IO.Path]::DirectorySeparatorChar
+    if (($ksFull + $sep).StartsWith($RepoPath.TrimEnd($sep) + $sep, [StringComparison]::OrdinalIgnoreCase)) { Fail 'keystore must not live inside the Git repository' }
+    $expectedSigner = Get-Prop $appCfg 'release_cert_sha256'
+    if (-not $expectedSigner) { Fail "toolchain.json apps.$App.release_cert_sha256 is not recorded; add the approved public fingerprint first" }
+    $expectedSigner = $expectedSigner.ToLower()
+    if ($expectedSigner -eq $tc.signing.debug_public_cert_sha256.ToLower()) { Fail 'release fingerprint equals the public debug key' }
+    foreach ($other in $tc.apps.PSObject.Properties) {
+        if ($other.Name -ne $App -and "$(Get-Prop $other.Value 'release_cert_sha256')".ToLower() -eq $expectedSigner) { Fail "apps $App and $($other.Name) must use separate release keys" }
+    }
+    if ($env:LEIA_KEYSTORE_PASSWORD) {
+        $script:ksPass = ConvertTo-SecureString $env:LEIA_KEYSTORE_PASSWORD -AsPlainText -Force
+        Remove-Item Env:LEIA_KEYSTORE_PASSWORD
+    } else {
+        $script:ksPass = Read-Host -AsSecureString "Keystore password for the $App app ($(Split-Path -Leaf $ksFull))"
+    }
+    if (-not $script:ksPass -or $script:ksPass.Length -eq 0) { Fail 'no keystore password entered' }
+    # Fail fast (before a 35-minute build): password, alias and key must open and match the recorded fingerprint.
+    Step "Checking release key '$KeyAlias' against toolchain.json"
+    $keytool = Join-Path $javaHome 'bin\keytool.exe'
+    $kt = Invoke-WithKeystorePassword {
+        $previous = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        try { @(& $keytool -list -v -keystore $ksFull -alias $KeyAlias -storepass:env LEIA_KEYSTORE_PASSWORD 2>&1 | ForEach-Object { "$_" }); $script:ktExit = $LASTEXITCODE }
+        finally { $ErrorActionPreference = $previous }
+    }
+    if ($script:ktExit -ne 0) { Fail "keystore could not be opened with that password and alias '$KeyAlias' (nothing was built)" }
+    $ktSha = ($kt | Where-Object { $_ -match '^\s*SHA256:\s*([0-9A-Fa-f:]+)\s*$' } | Select-Object -First 1) -replace '^\s*SHA256:\s*', '' -replace ':', ''
+    if ("$ktSha".Trim().ToLower() -ne $expectedSigner) { Fail "key '$KeyAlias' in $(Split-Path -Leaf $ksFull) is not the recorded $App release key (nothing was built)" }
+    if (-not ($kt | Where-Object { $_ -match 'Entry type: PrivateKeyEntry' })) { Fail "alias '$KeyAlias' holds no private key" }
 } else {
     $expectedSigner = $tc.signing.debug_public_cert_sha256.ToLower()
 }
@@ -261,16 +303,19 @@ $apk = Join-Path $src 'android\app\build\outputs\apk\release\app-release.apk'
 if (-not (Test-Path -LiteralPath $apk)) { Fail 'app-release.apk not produced' }
 
 if ($Signing -eq 'release') {
-    Step 'Re-signing with the release key (passwords from environment only)'
+    Step 'Re-signing with the release key (password from memory, never logged)'
     $bt = Join-Path $sdkRoot "build-tools\$($tc.android_sdk.build_tools)"
     $signed = Join-Path $work 'app-release-signed.apk'
     $apksignerJar = Join-Path $bt 'lib\apksigner.jar'
     $unsigned = $apk
-    Invoke-Logged 'apksigner sign' {
-        & $javaExe -jar $apksignerJar sign --ks $ksFull --ks-key-alias $KeyAlias `
-            --ks-pass env:LEIA_KEYSTORE_PASSWORD --key-pass env:LEIA_KEYSTORE_PASSWORD `
-            --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true --out $signed $unsigned
+    Invoke-WithKeystorePassword {
+        Invoke-Logged 'apksigner sign' {
+            & $javaExe -jar $apksignerJar sign --ks $ksFull --ks-key-alias $KeyAlias `
+                --ks-pass env:LEIA_KEYSTORE_PASSWORD --key-pass env:LEIA_KEYSTORE_PASSWORD `
+                --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true --out $signed $unsigned
+        }
     }
+    $script:ksPass.Dispose()
     $apk = $signed
 }
 
@@ -286,7 +331,12 @@ if ($info.min_sdk -ne $tc.android_app.min_sdk -or $info.target_sdk -ne $tc.andro
 if (($info.abis -join ',') -ne $tc.android_app.abi) { $problems += "abis $($info.abis -join ',')" }
 if ($info.forbidden_permissions_found.Count -gt 0) { $problems += "forbidden permissions $($info.forbidden_permissions_found -join ',')" }
 if (-not $info.signature_verifies) { $problems += 'signature does not verify' }
-if (-not ($info.signer_cert_sha256 -contains $expectedSigner)) { $problems += "signer $($info.signer_cert_sha256 -join ',')" }
+if (@($info.signer_cert_sha256).Count -ne 1 -or -not ($info.signer_cert_sha256 -contains $expectedSigner)) { $problems += "signer $($info.signer_cert_sha256 -join ',')" }
+if ($Signing -eq 'release' -and $info.signed_with_public_debug_key) { $problems += 'release APK carries the public debug key' }
+if ($info.debuggable) { $problems += 'APK is debuggable' }
+if ($info.cleartext_traffic) { $problems += 'cleartext HTTP traffic allowed' }
+if (@($info.dev_tooling_found).Count -gt 0) { $problems += "development tooling in manifest: $($info.dev_tooling_found -join ',')" }
+if (-not $info.js_bundle_embedded) { $problems += 'no embedded JavaScript bundle (would need a dev server)' }
 if (-not ($info.baked_api_hosts -contains $apiHost)) { $problems += "API host $apiHost not baked in ($($info.baked_api_hosts -join ','))" }
 if ($problems.Count) { Fail ("APK verification failed: " + ($problems -join '; ')) }
 
@@ -317,7 +367,7 @@ $manifest = [ordered]@{
     }
     dependencies     = [ordered]@{ expo = $deps.expo; react_native = $deps.'react-native'; react = $deps.react; expo_modules_core = $deps.'expo-modules-core'; hermes_compiler = $deps.'hermes-compiler'; package_lock_sha256 = $lockSha }
     signing          = [ordered]@{ mode = $Signing; cert_sha256 = $info.signer_cert_sha256; cert_sha1 = $info.signer_cert_sha1; schemes = $info.signing_schemes; public_debug_key = $info.signed_with_public_debug_key }
-    apk              = [ordered]@{ file = $apkName; sha256 = $info.sha256; size_bytes = $info.size_bytes; abis = $info.abis; min_sdk = $info.min_sdk; target_sdk = $info.target_sdk; compile_sdk = $info.compile_sdk; permissions = $info.permissions }
+    apk              = [ordered]@{ file = $apkName; sha256 = $info.sha256; size_bytes = $info.size_bytes; abis = $info.abis; min_sdk = $info.min_sdk; target_sdk = $info.target_sdk; compile_sdk = $info.compile_sdk; permissions = $info.permissions; debuggable = $info.debuggable; cleartext_traffic = $info.cleartext_traffic; js_bundle_embedded = $info.js_bundle_embedded }
     build            = [ordered]@{ work_dir = $work; source_dir = $src; cmake_object_path_max = $cmakeObjectPathMax; cmake_staging_dir = $cmakeStagingDir; gradle_max_workers = $maxWorkers; kotlin_execution = $kotlinStrategy; started_utc = $started.ToString('o'); finished_utc = [DateTime]::UtcNow.ToString('o'); script_sha256 = (Get-Sha256 $PSCommandPath); toolchain_sha256 = (Get-Sha256 $tcPath) }
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $outDir 'build-manifest.json') -Encoding UTF8

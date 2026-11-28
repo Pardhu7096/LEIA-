@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "LEIA",
-    "slug": "frontend",
+    "slug": "leia-customer",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -19,7 +19,11 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.leiarealestate.customer",
-      "versionCode": 2
+      "versionCode": 3,
+      "blockedPermissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
     },
     "web": {
       "output": "server",
@@ -40,6 +44,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b69e7fa0-5b91-4d72-aba0-4c4fbf3a3dd1"
+      }
+    },
+    "owner": "pardhu_m9_t"
   }
 }

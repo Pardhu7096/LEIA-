@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "LEIA Agent CRM",
-    "slug": "agent-app",
+    "slug": "leia-agent-crm",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -21,7 +21,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.leiarealestate.agent",
-      "versionCode": 2,
+      "versionCode": 3,
       "blockedPermissions": [
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
@@ -51,6 +51,12 @@
           "motionUsagePermission": false
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6235c4ad-090c-4689-a6a4-277d8a85967a"
+      }
+    },
+    "owner": "pardhu_m9_t"
   }
 }

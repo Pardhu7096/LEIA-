@@ -48,13 +48,15 @@
       "display_name": "LEIA Agent CRM",
       "expo": "58.0.23",
       "react_native": "0.88.1",
-      "min_version_code": 2,
+      "min_version_code": 3,
       "original_demo": {
         "file": "LEIA-Agent-CRM-Demo.apk",
         "sha256": "64765c0d086401d72d84c4a1cdf24a592c9d5e3720077a45c63f7bdf9d13cdd1",
         "version_code": 1,
         "version_name": "1.0.0"
-      }
+      },
+      "release_key_alias": "leia-agent-upload",
+      "release_cert_sha256": "c62878de2733bd30035721109a6caa8d267724c2382d963afaec235e299a760a"
     },
     "customer": {
       "dir": "frontend",
@@ -62,19 +64,26 @@
       "display_name": "LEIA",
       "expo": "58.0.22",
       "react_native": "0.88.1",
-      "min_version_code": 2,
+      "min_version_code": 3,
       "original_demo": {
         "file": "LEIA-Customer-Demo.apk",
         "sha256": "1e6a4115eee45b8d29f1c462e90439fd67aab81a17dc51b6a59722cc0e35653e",
         "version_code": 1,
         "version_name": "1.0.0"
-      }
+      },
+      "release_key_alias": "leia-customer-upload",
+      "release_cert_sha256": "c1f7bfc158740aaca69492234ffa099003fce466f53d706129e7aefb0847ef14",
+      "forbidden_permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ],
+      "_forbidden_note": "Pulled in by androidx.biometric via expo-secure-store; LEIA never uses requireAuthentication or biometrics (blocked in frontend/app.json)."
     }
   },
   "signing": {
     "debug_public_cert_sha256": "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
     "_debug_note": "Public React Native template debug key. Both installed demos use it. Staging-only; anyone can sign with it.",
     "release_cert_sha256": null,
-    "_release_note": "Set only after the owner creates the release keystore (docs/android/SIGNING.md). The fingerprint is public; the keystore and passwords never enter Git."
+    "_release_note": "Release signing uses a SEPARATE key per app: apps.<app>.release_cert_sha256. Since vc3 (2026-11-28) the keys are Expo-managed (EAS credentials for @pardhu_m9_t/leia-customer and leia-agent-crm, owner-approved); the owner keeps an encrypted offline backup. Only public certificate fingerprints are recorded here. signing.release_cert_sha256 is unused and must stay null."
   }
 }

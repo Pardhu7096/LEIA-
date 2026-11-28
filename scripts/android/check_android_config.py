@@ -31,9 +31,24 @@ if not re.fullmatch(r"[0-9a-f]{64}", tc.get("gradle", {}).get("distribution_sha2
     err("toolchain.json gradle.distribution_sha256 must be a SHA-256")
 if not re.fullmatch(r"[0-9a-f]{64}", tc.get("signing", {}).get("debug_public_cert_sha256", "")):
     err("toolchain.json signing.debug_public_cert_sha256 must be a SHA-256")
-release = tc.get("signing", {}).get("release_cert_sha256")
-if release is not None and not re.fullmatch(r"[0-9a-f]{64}", release):
-    err("toolchain.json signing.release_cert_sha256 must be null or a SHA-256 (fingerprint only)")
+if tc.get("signing", {}).get("release_cert_sha256") is not None:
+    err("toolchain.json signing.release_cert_sha256 must stay null: release keys are per app (apps.<app>.release_cert_sha256)")
+# Separate release (upload) key per app: public fingerprints only, distinct, never the public debug key.
+debug_fp = tc.get("signing", {}).get("debug_public_cert_sha256")
+release_fps = {}
+for name, app in tc.get("apps", {}).items():
+    fp = app.get("release_cert_sha256")
+    if not re.fullmatch(r"leia-[a-z]+-upload", app.get("release_key_alias") or ""):
+        err(f"toolchain.json apps.{name}.release_key_alias must be set (leia-<app>-upload)")
+    if fp is None:
+        continue
+    if not re.fullmatch(r"[0-9a-f]{64}", fp):
+        err(f"toolchain.json apps.{name}.release_cert_sha256 must be null or a lowercase SHA-256 (fingerprint only)")
+    elif fp == debug_fp:
+        err(f"toolchain.json apps.{name}.release_cert_sha256 is the public debug key")
+    elif fp in release_fps.values():
+        err(f"toolchain.json apps.{name}.release_cert_sha256 is shared with another app; each app needs its own key")
+    release_fps[name] = fp
 
 forbidden = set(tc.get("forbidden_permissions", []))
 for name, app in tc.get("apps", {}).items():
@@ -51,6 +66,11 @@ for name, app in tc.get("apps", {}).items():
     blocked = set(android.get("blockedPermissions", []))
     if perms & forbidden:
         err(f"{path.relative_to(ROOT)}: forbidden permissions requested: {sorted(perms & forbidden)}")
+    app_forbidden = set(app.get("forbidden_permissions", []))
+    if perms & app_forbidden:
+        err(f"{path.relative_to(ROOT)}: forbidden permissions requested: {sorted(perms & app_forbidden)}")
+    if app_forbidden - blocked:
+        err(f"{path.relative_to(ROOT)}: android.blockedPermissions must include {sorted(app_forbidden - blocked)}")
     text = json.dumps(expo)
     if re.search(r'"isAndroidBackgroundLocationEnabled"\s*:\s*true|"isAndroidForegroundServiceEnabled"\s*:\s*true', text):
         err(f"{path.relative_to(ROOT)}: background location / location foreground service must stay disabled")

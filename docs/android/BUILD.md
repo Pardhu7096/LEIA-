@@ -18,10 +18,12 @@ Both apps are Expo SDK 58 / React Native 0.88.1 projects. Their `android/` folde
 
 | App | applicationId | Display name | versionCode in Git |
 |---|---|---|---|
-| Agent CRM | `com.leiarealestate.agent` | LEIA Agent CRM | 2 |
-| Customer | `com.leiarealestate.customer` | LEIA | 2 |
+| Agent CRM | `com.leiarealestate.agent` | LEIA Agent CRM | 3 |
+| Customer | `com.leiarealestate.customer` | LEIA | 3 |
 
 The installed demos (2026-11-22) are versionCode 1, signed with the public debug key. versionCode 2 or higher, signed with the **same** key, upgrades them in place. Raise `android.versionCode` in `app.json` for every APK you hand out.
+
+versionCode 3 (pilot, 2026-11-28) is release-signed with a separate key per app (`SIGNING.md`). A release-signed APK cannot update a debug-signed install: uninstall the old app first, once per phone. Every APK is checked to be non-debuggable, without cleartext HTTP, without Expo development tooling, with its JavaScript bundle embedded, and without the Customer app's blocked biometric permissions.
 
 ## Build
 ```powershell
