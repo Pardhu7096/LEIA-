@@ -5,10 +5,15 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
+import contextvars
+from contextlib import asynccontextmanager, contextmanager
 import logging
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from groq import APIError, Groq, RateLimitError
@@ -20,6 +25,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from auth import get_current_user, router as auth_router
 from crm import router as crm_router
+import database
 from database import get_connection
 from marketing_jobs import router as marketing_router
 from native_sessions import router as native_sessions_router
@@ -44,8 +50,25 @@ client = Groq(
     max_retries=0,
 )
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_app):
+    # One pool per process: opened at startup (without blocking on the database), closed at shutdown.
+    await run_in_threadpool(database.open_pool)
+    try:
+        yield
+    finally:
+        await run_in_threadpool(database.close_pool)
+
+
+app = FastAPI(lifespan=lifespan)
 install_request_ids(app)
+
+
+@app.exception_handler(database.PoolTimeout)
+async def pool_exhausted(_request, _error):
+    # Every pooled connection stayed busy for LEIA_DB_POOL_TIMEOUT seconds: shed load, don't queue.
+    return JSONResponse({"detail": "LEIA is busy right now. Please try again in a moment."},
+                        status_code=503, headers={"Retry-After": "2"})
 app.include_router(auth_router)
 app.include_router(native_sessions_router)
 app.include_router(crm_router)
@@ -220,53 +243,100 @@ ORDER_BY = {
 }
 
 
-def filter_properties(filters: SearchFilters) -> list[dict]:
-    location = filters.location.strip() if filters.location else None
-    keys = search_parser.location_keys(location)
-    order_by = ORDER_BY[filters.sort]  # fixed whitelist, never user text
+# Customer search conditions. Each is parameterized; "{s}" is a parameter-name suffix so the same
+# condition can appear several times in one statement (the no-result suggestions below).
+SEARCH_PREDICATES = {
+    "bedrooms": "(%(bedrooms{s})s::integer IS NULL OR bedrooms = %(bedrooms{s})s)",
+    "min_price": "(%(min_price{s})s::numeric IS NULL OR price >= %(min_price{s})s)",
+    "max_price": "(%(max_price{s})s::numeric IS NULL OR price <= %(max_price{s})s)",
+    "location": """(%(location{s})s::text IS NULL
+        OR lower(locality) = lower(%(location{s})s)
+        OR lower(city) = lower(%(location{s})s)
+        OR lower(concat_ws(', ', locality, city)) = lower(%(location{s})s)
+        OR regexp_replace(lower(coalesce(locality, '')), '[^a-z0-9ఀ-౿]', '', 'g')
+            = ANY(%(location_keys{s})s::text[])
+        OR regexp_replace(lower(coalesce(city, '')), '[^a-z0-9ఀ-౿]', '', 'g')
+            = ANY(%(location_keys{s})s::text[]))""",
+    "property_type": "(%(property_type{s})s::text IS NULL OR property_type = %(property_type{s})s)",
+    "facing": "(%(facing{s})s::text IS NULL OR p.facing = %(facing{s})s)",
+    "min_area_sqft": "(%(min_area_sqft{s})s::numeric IS NULL OR area_sqft >= %(min_area_sqft{s})s)",
+    "max_area_sqft": "(%(max_area_sqft{s})s::numeric IS NULL OR area_sqft <= %(max_area_sqft{s})s)",
+    "parking": """(%(parking{s})s::boolean IS NOT TRUE
+        OR coalesce(car_parking_spaces, 0) > 0 OR parking_type IN ('open', 'covered', 'both'))""",
+    "power_backup": """(%(power_backup{s})s::boolean IS NOT TRUE
+        OR power_backup IN ('common_areas', 'partial_home', 'full_home'))""",
+}
+# Customers only ever see approved, available listings.
+PUBLISHED = "status = 'approved' AND availability = 'available'"
+
+# /chat sets this to its transaction's cursor so a search reuses that connection instead of
+# taking a second one from the pool. Elsewhere (e.g. GET /properties) searches open their own.
+_search_cursor: contextvars.ContextVar = contextvars.ContextVar("leia_search_cursor", default=None)
+
+
+def _search_conditions(filters: dict, suffix: str = "") -> tuple[str, dict]:
+    location = filters["location"].strip() if filters.get("location") else None
+    params = {f"{name}{suffix}": filters.get(name) for name in SEARCH_PREDICATES}
+    params[f"location{suffix}"] = location or None
+    params[f"location_keys{suffix}"] = search_parser.location_keys(location) or []
+    sql = " AND ".join(template.replace("{s}", suffix) for template in SEARCH_PREDICATES.values())
+    return sql, params
+
+
+@contextmanager
+def _search_cursor_scope():
+    cursor = _search_cursor.get()
+    if cursor is not None:
+        yield cursor
+        return
     with get_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT p.id::text AS id, title, concat_ws(', ', locality, city) AS location,
-                    price, bedrooms, area_sqft::double precision AS area_sqft,
-                    p.property_type,
-                    p.facing,
-                    '/property-media/' || coalesce(gallery_cover.id, cover.id) AS image,
-                    '/property-media/' || panorama.id || '/tour' AS tour
-                FROM public.properties AS p
-                LEFT JOIN public.property_media AS gallery_cover
-                    ON gallery_cover.property_id = p.id AND gallery_cover.is_gallery_cover
-                LEFT JOIN public.property_media AS cover
-                    ON cover.property_id = p.id AND cover.kind = 'cover'
-                LEFT JOIN public.property_media AS panorama
-                    ON panorama.property_id = p.id AND panorama.kind = 'panorama'
-                WHERE status = 'approved' AND availability = 'available'
-                    AND (%(bedrooms)s::integer IS NULL OR bedrooms = %(bedrooms)s)
-                    AND (%(min_price)s::numeric IS NULL OR price >= %(min_price)s)
-                    AND (%(max_price)s::numeric IS NULL OR price <= %(max_price)s)
-                    AND (%(location)s::text IS NULL
-                        OR lower(locality) = lower(%(location)s)
-                        OR lower(city) = lower(%(location)s)
-                        OR lower(concat_ws(', ', locality, city)) = lower(%(location)s)
-                        OR regexp_replace(lower(coalesce(locality, '')), '[^a-z0-9ఀ-౿]', '', 'g')
-                            = ANY(%(location_keys)s::text[])
-                        OR regexp_replace(lower(coalesce(city, '')), '[^a-z0-9ఀ-౿]', '', 'g')
-                            = ANY(%(location_keys)s::text[]))
-                    AND (%(property_type)s::text IS NULL OR property_type = %(property_type)s)
-                    AND (%(facing)s::text IS NULL OR p.facing = %(facing)s)
-                    AND (%(min_area_sqft)s::numeric IS NULL OR area_sqft >= %(min_area_sqft)s)
-                    AND (%(max_area_sqft)s::numeric IS NULL OR area_sqft <= %(max_area_sqft)s)
-                    AND (%(parking)s::boolean IS NOT TRUE
-                        OR coalesce(car_parking_spaces, 0) > 0 OR parking_type IN ('open', 'covered', 'both'))
-                    AND (%(power_backup)s::boolean IS NOT TRUE
-                        OR power_backup IN ('common_areas', 'partial_home', 'full_home'))
-                ORDER BY """ + order_by + """
-                LIMIT 30
-                """,
-                {**filters.model_dump(), "location": location or None, "location_keys": keys or []},
-            )
-            return cursor.fetchall()
+        connection.autocommit = True  # read-only: no BEGIN/COMMIT round trips
+        with connection.cursor() as own:
+            yield own
+
+
+def filter_properties(filters: SearchFilters) -> list[dict]:
+    order_by = ORDER_BY[filters.sort]  # fixed whitelist, never user text
+    conditions, params = _search_conditions(filters.model_dump())
+    with _search_cursor_scope() as cursor:
+        cursor.execute(
+            """
+            SELECT p.id::text AS id, title, concat_ws(', ', locality, city) AS location,
+                price, bedrooms, area_sqft::double precision AS area_sqft,
+                p.property_type,
+                p.facing,
+                '/property-media/' || coalesce(gallery_cover.id, cover.id) AS image,
+                '/property-media/' || panorama.id || '/tour' AS tour
+            FROM public.properties AS p
+            LEFT JOIN public.property_media AS gallery_cover
+                ON gallery_cover.property_id = p.id AND gallery_cover.is_gallery_cover
+            LEFT JOIN public.property_media AS cover
+                ON cover.property_id = p.id AND cover.kind = 'cover'
+            LEFT JOIN public.property_media AS panorama
+                ON panorama.property_id = p.id AND panorama.kind = 'panorama'
+            WHERE """ + PUBLISHED + " AND " + conditions + """
+            ORDER BY """ + order_by + """
+            LIMIT 30
+            """,
+            params,
+        )
+        return cursor.fetchall()
+
+
+def count_relaxed_matches(variants: list[dict]) -> list[int]:
+    """Published-listing counts for several complete filter sets, in ONE statement."""
+    if not variants:
+        return []
+    columns, params = [], {}
+    for index, variant in enumerate(variants):
+        conditions, variant_params = _search_conditions(variant, f"_{index}")
+        columns.append(f"count(*) FILTER (WHERE {conditions}) AS c{index}")
+        params.update(variant_params)
+    with _search_cursor_scope() as cursor:
+        cursor.execute("SELECT " + ", ".join(columns) + " FROM public.properties AS p WHERE " + PUBLISHED,
+                       params)
+        row = cursor.fetchone()
+    return [int(row[f"c{index}"]) for index in range(len(variants))]
 
 
 def extraction_messages(message: str, previous_filters: dict) -> list[dict]:
@@ -479,12 +549,14 @@ def suggest_alternatives(filters: SearchFilters) -> list[str]:
     for fields, label in relax:
         if any(current.get(name) for name in fields):
             options.append(({name: None for name in fields}, label))
+    options = options[:6]
+    try:
+        counts = count_relaxed_matches(
+            [SearchFilters.model_validate({**current, **change}).model_dump() for change, _ in options])
+    except Exception:  # noqa: BLE001 - suggestions are optional
+        return []
     found = []
-    for change, label in options[:6]:
-        try:
-            count = len(filter_properties(SearchFilters.model_validate({**current, **change})))
-        except Exception:  # noqa: BLE001
-            break
+    for (_, label), count in zip(options, counts):
         if count:
             found.append(f"{label} ({count} listing{'s' if count != 1 else ''})")
         if len(found) == 3:
@@ -512,7 +584,10 @@ def run_search(filters: SearchFilters, event: SearchEvent, notes: list[str], uns
     return {"reply": "\n\n".join(lines), "properties": matches, "filters": filters.model_dump()}
 
 
-def answer_customer_search(message: str, saved: SearchFilters, user: dict, event: SearchEvent) -> dict:
+def answer_customer_search(message: str, saved: SearchFilters, user: dict, event: SearchEvent,
+                           prefetched=None, inline_ai: bool = True) -> dict:
+    """``prefetched``: Groq result obtained before the chat transaction. ``inline_ai=False``: never call
+    Groq here (the /chat transaction holds a connection); without a prefetch, fall back instead."""
     previous = saved.model_dump()
     same = {"properties": [], "filters": previous}
     parsed = search_parser.parse(message)
@@ -551,9 +626,14 @@ def answer_customer_search(message: str, saved: SearchFilters, user: dict, event
         event.set(route="clarify", fallback_reason="input_too_large")
         return {"reply": "That message is too long for me to interpret. Please describe the home you want "
                          "in one or two short sentences.", **same}
-    usage = ai_guard.Usage()
+    usage = prefetched.usage if prefetched is not None else ai_guard.Usage()
 
     def extract(messages):
+        if prefetched is not None:
+            usage.cache_hit = prefetched.cache_hit
+            return prefetched.extract(messages)
+        if not inline_ai:
+            raise ai_guard.AIUnavailable("not_prefetched")
         key = ai_guard.SingleFlightCache.key(settings.model, EXTRACTION_PROMPT, messages[-1]["content"])
 
         def call():
@@ -817,10 +897,14 @@ def listing_walk_reply(listing: dict, category: Category, user: dict) -> tuple[s
         reply = f"{listing['title']} doesn’t have a map pin yet."
         return reply, reply
 
-    limit_maps(user)
-    walk = shortest_nearby_walk(listing["latitude"], listing["longitude"], category)
     # Save the conversation without persisting Google Maps content.
     saved = "Ask again to get a fresh walking estimate from Google Maps."
+    pending = _deferred_walk.get()
+    if pending is not None:  # /chat: call Google after releasing the database connection
+        pending.append(({key: listing[key] for key in ("title", "latitude", "longitude")}, category))
+        return "", saved
+    limit_maps(user)
+    walk = shortest_nearby_walk(listing["latitude"], listing["longitude"], category)
     return f"From {listing['title']}\n\n{walk}", saved
 
 
@@ -951,6 +1035,107 @@ def selected_listing_reply(cursor, property_id: UUID, message: str, user: dict) 
     return reply, reply
 
 
+# ---------------------------------------------------------------------------
+# /chat request lifecycle.
+#   Phase A, no lock and no connection while waiting on the network:
+#     - listing/temple questions: read what they need in one short autocommit block, release the
+#       connection, THEN call Google Maps (rate limit + walk);
+#     - AI routes: read the saved filters, release the connection, THEN call Groq (budget-guarded).
+#   Phase B, one short transaction: lock the conversation, run the database search on that same
+#     connection, save both messages and the filters in a single statement, commit.
+# If the saved filters changed between phase A and phase B (another message in the same
+# conversation), the AI answer is discarded and the request falls back to ordinary search.
+# ---------------------------------------------------------------------------
+_deferred_walk: contextvars.ContextVar[list | None] = contextvars.ContextVar("leia_deferred_walk", default=None)
+WALK_SAVED_REPLY = "Ask again to get a fresh walking estimate from Google Maps."
+
+
+@dataclass
+class AIPrefetch:
+    """A Groq extraction done before the chat transaction (never while holding a connection)."""
+
+    request_content: str
+    usage: ai_guard.Usage
+    content: str | None = None
+    error: BaseException | None = None
+    cache_hit: bool = False
+
+    def extract(self, messages):
+        if messages[-1]["content"] != self.request_content:
+            raise ai_guard.AIUnavailable("conversation_changed")
+        if self.error is not None:
+            raise self.error
+        return self.content
+
+
+def _conversation_filters(cursor, conversation_id: UUID, user_id, lock: bool) -> SearchFilters:
+    cursor.execute(
+        "SELECT id, filters FROM conversations WHERE id = %s AND user_id = %s"
+        + (" FOR UPDATE;" if lock else ";"),
+        (conversation_id, user_id),
+    )
+    conversation = cursor.fetchone()
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return SearchFilters.model_validate(conversation["filters"])
+
+
+def prefetch_ai(route: str, conversation_id: UUID, message: str, user: dict) -> AIPrefetch | None:
+    settings = ai_guard.load_settings()
+    if route == "hybrid":  # the parser needs only the text: deterministic messages skip this phase
+        parsed = search_parser.parse(message)
+        if parsed.kind != "needs_ai" or len(message) > settings.max_message_chars:
+            return None
+    with get_connection() as connection:
+        connection.autocommit = True
+        with connection.cursor() as cursor:
+            saved = _conversation_filters(cursor, conversation_id, user["id"], lock=False)
+    messages = extraction_messages(message, saved.model_dump())
+    prefetch = AIPrefetch(request_content=messages[-1]["content"], usage=ai_guard.Usage())
+
+    def call():
+        completion = ai_guard.guarded_completion(str(user["id"]), client.chat.completions.create,
+                                                 messages, prefetch.usage)
+        return completion.choices[0].message.content or ""
+
+    try:
+        if route == "hybrid":
+            key = ai_guard.SingleFlightCache.key(settings.model, EXTRACTION_PROMPT, messages[-1]["content"])
+            prefetch.content, prefetch.cache_hit = ai_guard.extraction_cache.get_or_compute(
+                key, settings.cache_ttl_s, call)
+        else:
+            prefetch.content = call()
+    except Exception as error:  # noqa: BLE001 - replayed inside the normal error handling below
+        prefetch.error = error
+    return prefetch
+
+
+def _no_inline_ai(messages):
+    raise ai_guard.AIUnavailable("not_prefetched")
+
+
+def listing_reply_without_holding_db(request: ChatRequest, message: str, user: dict) -> tuple[str, str]:
+    pending: list = []
+    token = _deferred_walk.set(pending)
+    try:
+        with get_connection() as connection:
+            connection.autocommit = True
+            with connection.cursor() as cursor:
+                _conversation_filters(cursor, request.conversation_id, user["id"], lock=False)
+                if request.property_id is not None:
+                    reply, saved_reply = selected_listing_reply(cursor, request.property_id, message, user)
+                else:
+                    reply, saved_reply = temple_walk_reply(cursor, request.conversation_id, message, user)
+    finally:
+        _deferred_walk.reset(token)
+    if pending:  # Google Maps, with no database connection held
+        listing, category = pending[0]
+        limit_maps(user)
+        walk = shortest_nearby_walk(listing["latitude"], listing["longitude"], category)
+        reply = f"From {listing['title']}\n\n{walk}"
+    return reply, saved_reply
+
+
 @app.post("/chat")
 def chat(
     request: ChatRequest,
@@ -972,131 +1157,103 @@ def chat(
             detail="Create or open a conversation before sending a message.",
         )
 
-    # Keep each exchange and filter update in one transaction.
-    # Locking serializes concurrent sends to the same conversation.
-    with get_connection() as connection:
-        with connection.cursor() as cursor:
+    event = SearchEvent()
+    if request.property_id is not None or TEMPLE_WALK_QUESTION.search(message):
+        route = "listing"
+    elif COMPARE_QUESTION.search(message):
+        route = "compare"
+    elif os.getenv("LEIA_SEARCH_ROUTER", "hybrid").strip().lower() == "ai":
+        route = "legacy_ai"  # legacy AI-first routing (still budget-guarded); kept for rollback
+    else:
+        route = "hybrid"
+
+    # Phase A: everything that waits on an external service, with no connection held.
+    listing_replies = prefetched = None
+    if route == "listing":
+        response.headers["Cache-Control"] = "no-store"
+        event.set(route="listing")
+        listing_replies = listing_reply_without_holding_db(request, message, user)
+    elif route in {"legacy_ai", "hybrid"}:
+        prefetched = prefetch_ai(route, request.conversation_id, message, user)
+
+    # Phase B: one short transaction. Locking serializes concurrent sends to the same conversation.
+    found = False
+    try:
+        with get_connection() as connection, connection.cursor() as cursor:
+            saved_filters = _conversation_filters(cursor, request.conversation_id, user["id"], lock=True)
+            found = True
+            cursor_token = _search_cursor.set(cursor)  # searches reuse this connection
+            try:
+                if route == "listing":
+                    reply, saved_reply = listing_replies
+                    result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
+                elif route == "compare":
+                    event.set(route="compare")
+                    reply = compare_reply(cursor, request.conversation_id, message)
+                    saved_reply = reply
+                    result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
+                elif route == "legacy_ai":
+                    usage = prefetched.usage if prefetched else ai_guard.Usage()
+                    event.set(route="ai")
+                    try:
+                        result = generate_chat_reply(
+                            ChatRequest(message=message, filters=saved_filters),
+                            extract=prefetched.extract if prefetched else _no_inline_ai)
+                    except ai_guard.AIUnavailable as error:
+                        event.set(route="fallback", fallback_reason=error.reason)
+                        result = {"reply": AI_FALLBACK_REPLY, "properties": [],
+                                  "filters": saved_filters.model_dump()}
+                    finally:
+                        event.add_usage(usage)
+                    saved_reply = result["reply"]
+                else:
+                    result = answer_customer_search(message, saved_filters, user, event,
+                                                    prefetched=prefetched, inline_ai=False)
+                    saved_reply = result["reply"]
+            finally:
+                _search_cursor.reset(cursor_token)
+
+            updated_filters = SearchFilters.model_validate(result["filters"]).model_dump()
+            # Both messages and the conversation update in one round trip. VALUES rows are inserted
+            # in order, so the user message keeps the lower id.
             cursor.execute(
                 """
-                SELECT id, filters
-                FROM conversations
-                WHERE id = %s AND user_id = %s
-                FOR UPDATE;
-                """,
-                (request.conversation_id, user["id"]),
-            )
-            conversation = cursor.fetchone()
-
-            if conversation is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Conversation not found.",
+                WITH saved AS (
+                    INSERT INTO chat_messages (conversation_id, role, content, properties, property_id)
+                    VALUES (%(conversation_id)s, 'user', %(message)s, %(no_properties)s, %(property_id)s),
+                           (%(conversation_id)s, 'assistant', %(reply)s, %(properties)s, %(property_id)s)
+                    RETURNING id, role
+                ), conversation AS (
+                    UPDATE conversations
+                    SET filters = %(filters)s,
+                        title = CASE WHEN title = 'New property search' THEN %(title)s ELSE title END,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %(conversation_id)s AND user_id = %(user_id)s
+                    RETURNING id
                 )
-
-            saved_filters = SearchFilters.model_validate(
-                conversation["filters"]
-            )
-
-            event = SearchEvent()
-            if request.property_id is not None:
-                response.headers["Cache-Control"] = "no-store"
-                event.set(route="listing")
-                reply, saved_reply = selected_listing_reply(cursor, request.property_id, message, user)
-                result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
-            elif TEMPLE_WALK_QUESTION.search(message):
-                response.headers["Cache-Control"] = "no-store"
-                event.set(route="listing")
-                reply, saved_reply = temple_walk_reply(cursor, request.conversation_id, message, user)
-                result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
-            elif COMPARE_QUESTION.search(message):
-                event.set(route="compare")
-                reply = compare_reply(cursor, request.conversation_id, message)
-                saved_reply = reply
-                result = {"reply": reply, "properties": [], "filters": saved_filters.model_dump()}
-            elif os.getenv("LEIA_SEARCH_ROUTER", "hybrid").strip().lower() == "ai":
-                # Legacy AI-first routing (still budget-guarded); kept for comparison and rollback.
-                usage = ai_guard.Usage()
-
-                def guarded_extract(messages):
-                    completion = ai_guard.guarded_completion(
-                        str(user["id"]), client.chat.completions.create, messages, usage)
-                    return completion.choices[0].message.content or ""
-
-                event.set(route="ai")
-                try:
-                    result = generate_chat_reply(
-                        ChatRequest(message=message, filters=saved_filters), extract=guarded_extract)
-                except ai_guard.AIUnavailable as error:
-                    event.set(route="fallback", fallback_reason=error.reason)
-                    result = {"reply": AI_FALLBACK_REPLY, "properties": [],
-                              "filters": saved_filters.model_dump()}
-                finally:
-                    event.add_usage(usage)
-                saved_reply = result["reply"]
-            else:
-                try:
-                    result = answer_customer_search(message, saved_filters, user, event)
-                finally:
-                    event.emit()
-                saved_reply = result["reply"]
-            if "latency_ms" not in event.data:
-                event.emit()
-
-            updated_filters = SearchFilters.model_validate(
-                result["filters"]
-            ).model_dump()
-
-            cursor.execute(
-                """
-                INSERT INTO chat_messages
-                    (conversation_id, role, content, properties, property_id)
-                VALUES (%s, 'user', %s, %s, %s)
-                RETURNING id;
+                SELECT (SELECT id FROM saved WHERE role = 'user') AS user_message_id,
+                       (SELECT id FROM saved WHERE role = 'assistant') AS assistant_message_id,
+                       (SELECT count(*) FROM conversation) AS updated;
                 """,
-                (request.conversation_id, message, Jsonb([]), request.property_id),
+                {
+                    "conversation_id": request.conversation_id, "message": message,
+                    "no_properties": Jsonb([]), "property_id": request.property_id,
+                    "reply": saved_reply, "properties": Jsonb(result["properties"]),
+                    "filters": Jsonb(updated_filters), "title": message[:80], "user_id": user["id"],
+                },
             )
-            user_message_id = cursor.fetchone()["id"]
-
-            cursor.execute(
-                """
-                INSERT INTO chat_messages
-                    (conversation_id, role, content, properties, property_id)
-                VALUES (%s, 'assistant', %s, %s, %s)
-                RETURNING id;
-                """,
-                (
-                    request.conversation_id,
-                    saved_reply,
-                    Jsonb(result["properties"]),
-                    request.property_id,
-                ),
-            )
-            assistant_message_id = cursor.fetchone()["id"]
-
-            cursor.execute(
-                """
-                UPDATE conversations
-                SET filters = %s,
-                    title = CASE
-                        WHEN title = 'New property search' THEN %s
-                        ELSE title
-                    END,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND user_id = %s;
-                """,
-                (
-                    Jsonb(updated_filters),
-                    message[:80],
-                    request.conversation_id,
-                    user["id"],
-                ),
-            )
+            ids = cursor.fetchone()
+    except Exception:
+        if found:
+            event.emit()
+        raise
+    event.emit()
 
     return {
         **result,
         "conversation_id": request.conversation_id,
-        "user_message_id": user_message_id,
-        "assistant_message_id": assistant_message_id,
+        "user_message_id": ids["user_message_id"],
+        "assistant_message_id": ids["assistant_message_id"],
     }
 
 

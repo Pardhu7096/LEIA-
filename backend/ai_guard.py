@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
+import db_metrics
 from database import get_connection
 from rate_limits import consume
 
@@ -171,11 +172,16 @@ def settle(periods: tuple[str, str], reserved: int, spent: int, input_tokens: in
         pass
 
 
-def _limit(bucket: str, identity: str, limit: int, seconds: int, reason: str) -> None:
+def _limits(items: list[tuple[str, str, int, int, str]]) -> None:
+    """All AI request limits in one transaction; the first full bucket decides the reason."""
+    reasons = {bucket: reason for bucket, _, _, _, reason in items}
+    first, *rest = [(bucket, identity, limit, seconds) for bucket, identity, limit, seconds, _ in items]
     try:
-        consume(bucket, identity, limit, seconds)
+        consume(*first, *rest)
     except HTTPException as error:
-        raise AIUnavailable(reason if error.status_code == 429 else "limits_unavailable") from None
+        if error.status_code != 429:
+            raise AIUnavailable("limits_unavailable") from None
+        raise AIUnavailable(reasons.get(getattr(error, "bucket", ""), items[0][4])) from None
 
 
 @dataclass
@@ -203,10 +209,12 @@ def guarded_completion(user_id: str, create, messages: list[dict], usage: Usage,
     est_in = estimate_input_tokens(messages)
     if est_in > settings.max_input_tokens:
         raise AIUnavailable("input_too_large")
-    _limit("ai-user-minute", user_id, settings.user_per_minute, 60, "user_rate")
-    _limit("ai-user-day", user_id, settings.user_per_day, 86400, "user_rate")
-    _limit("ai-global-minute", "all", settings.global_per_minute, 60, "global_rate")
-    _limit("ai-global-day", "all", settings.global_per_day, 86400, "global_rate")
+    _limits([
+        ("ai-user-minute", user_id, settings.user_per_minute, 60, "user_rate"),
+        ("ai-user-day", user_id, settings.user_per_day, 86400, "user_rate"),
+        ("ai-global-minute", "all", settings.global_per_minute, 60, "global_rate"),
+        ("ai-global-day", "all", settings.global_per_day, 86400, "global_rate"),
+    ])
 
     kwargs = {
         "model": settings.model,
@@ -223,9 +231,11 @@ def guarded_completion(user_id: str, create, messages: list[dict], usage: Usage,
     for attempt in range(settings.max_attempts):
         periods = reserve(settings, worst)
         usage.attempts += 1
+        provider_started = time.perf_counter()
         try:
             completion = create(**kwargs)
         except Exception as error:  # noqa: BLE001
+            db_metrics.record_ai((time.perf_counter() - provider_started) * 1000)
             # A timed-out request may still be billed: keep the worst case as spent.
             billed = worst if type(error).__name__ == "APITimeoutError" else 0
             settle(periods, worst, billed, 0, 0)
@@ -243,6 +253,7 @@ def guarded_completion(user_id: str, create, messages: list[dict], usage: Usage,
                 continue
             raise AIUnavailable("provider_timeout" if type(error).__name__ == "APITimeoutError"
                                 else "provider_error") from None
+        db_metrics.record_ai((time.perf_counter() - provider_started) * 1000)
         reported = getattr(completion, "usage", None)
         in_tokens = getattr(reported, "prompt_tokens", None)
         out_tokens = getattr(reported, "completion_tokens", None)

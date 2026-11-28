@@ -65,3 +65,8 @@ jobs:
       - run: python -m pytest backend/tests/test_ai_guard.py -q
         env:
           TEST_DATABASE_URL: postgresql://postgres:crm-test-only@localhost:5432/leia_ai_test
+      # Connection pool: leaks, rollback, isolation, exhaustion/recovery, restarts, concurrency.
+      - run: psql postgresql://postgres:crm-test-only@localhost:5432/crm_test -c 'CREATE DATABASE leia_pool_test;'
+      - run: python -m pytest backend/tests/test_db_pool.py -q
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:crm-test-only@localhost:5432/leia_pool_test

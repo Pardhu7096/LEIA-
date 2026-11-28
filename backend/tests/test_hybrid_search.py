@@ -168,3 +168,76 @@ def test_request_id_header_and_comparison_from_records(hybrid):
     assert "Comparison from LEIA’s approved listing records" in comparison["reply"]
     assert "₹50,00,000" in comparison["reply"] and "₹68,00,000" in comparison["reply"]
     assert not hybrid.ai.calls
+
+
+# --- Connection lifecycle of /chat (pooling work): one transaction, nothing held during Groq ----------
+@pytest.fixture
+def counted(hybrid, monkeypatch):
+    from contextlib import contextmanager
+
+    state = SimpleNamespace(blocks=0, open=0)
+
+    @contextmanager
+    def counting(*args, **kwargs):
+        state.blocks += 1
+        state.open += 1
+        try:
+            with hybrid.database() as connection:
+                yield connection
+        finally:
+            state.open -= 1
+
+    monkeypatch.setattr(hybrid.main, "get_connection", counting)
+    return state
+
+
+def test_deterministic_search_uses_one_transaction_and_reuses_it(hybrid, counted):
+    counted.blocks = 0
+    result = hybrid.chat("3 bhk in Chinthalagraharam sorted by price")
+    assert hybrid.ids["mid"] in listing_ids(result)
+    assert counted.blocks == 1  # lock + search + save on one connection (no nested connections)
+    counted.blocks = 0
+    empty = hybrid.chat("flats with power backup and parking")
+    assert not empty["properties"]
+    assert "drop the parking requirement (1 listing)" in empty["reply"]
+    assert "drop the power-backup requirement (2 listings)" in empty["reply"]
+    assert counted.blocks == 1  # suggestions are one query on the same connection
+    assert not hybrid.ai.calls
+
+
+def test_no_database_connection_is_held_while_waiting_for_groq(hybrid, counted):
+    seen = []
+
+    def answer(**kwargs):
+        seen.append(counted.open)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(
+                {"intent": "search", "bedrooms": 3, "location": "Chinthalagraharam"})))],
+            usage=SimpleNamespace(prompt_tokens=900, completion_tokens=100, completion_tokens_details=None))
+
+    hybrid.ai.behaviour = answer
+    result = hybrid.chat("a calm 3 bhk home for my parents in Chintalaagraharam")
+    assert seen == [0]  # no /chat connection open during the provider call
+    assert hybrid.ids["mid"] in listing_ids(result)
+    assert counted.blocks == 2  # short read before Groq, one transaction after
+
+
+def test_conversation_changed_during_groq_falls_back_without_using_stale_ai(hybrid):
+    def answer(**kwargs):
+        # Another message updates this conversation's filters while Groq is answering.
+        with hybrid.database() as connection:
+            connection.execute("UPDATE conversations SET filters = %s WHERE id = %s",
+                               (json.dumps({"bedrooms": 2}), hybrid.conversation))
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(
+                {"intent": "search", "bedrooms": 3, "location": "Chinthalagraharam"})))],
+            usage=SimpleNamespace(prompt_tokens=900, completion_tokens=100, completion_tokens_details=None))
+
+    hybrid.ai.behaviour = answer
+    result = hybrid.chat("a calm 3 bhk home for my parents in Chintalaagraharam")
+    assert len(hybrid.ai.calls) == 1
+    assert "couldn’t interpret part" in result["reply"]  # ordinary search with what was understood
+    assert result["filters"]["bedrooms"] == 3 and result["filters"]["location"] == "Chinthalagraharam"
+    with hybrid.database() as connection:
+        day = connection.execute("SELECT * FROM ai_usage_periods WHERE period LIKE 'day:%'").fetchone()
+    assert day["requests"] == 1 and day["reserved_micro_inr"] == 0  # the real call is still accounted
