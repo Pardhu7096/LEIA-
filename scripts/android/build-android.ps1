@@ -114,7 +114,9 @@ if ($Signing -eq 'release') {
     if (-not $KeyAlias) { Fail "no -KeyAlias and no toolchain.json apps.$App.release_key_alias" }
     if (-not (Test-Path -LiteralPath $KeystorePath -PathType Leaf)) { Fail "keystore not found: $KeystorePath" }
     $ksFull = (Resolve-Path -LiteralPath $KeystorePath).Path
-    if ($ksFull.StartsWith($RepoPath, [StringComparison]::OrdinalIgnoreCase)) { Fail 'keystore must not live inside the Git repository' }
+    # Compare whole path segments: D:\LEIA-signing is outside the repository D:\LEIA.
+    $sep = [IO.Path]::DirectorySeparatorChar
+    if (($ksFull + $sep).StartsWith($RepoPath.TrimEnd($sep) + $sep, [StringComparison]::OrdinalIgnoreCase)) { Fail 'keystore must not live inside the Git repository' }
     $expectedSigner = Get-Prop $appCfg 'release_cert_sha256'
     if (-not $expectedSigner) { Fail "toolchain.json apps.$App.release_cert_sha256 is not recorded; add the approved public fingerprint first" }
     $expectedSigner = $expectedSigner.ToLower()
