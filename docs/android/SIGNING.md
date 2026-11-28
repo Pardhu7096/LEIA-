@@ -9,7 +9,74 @@ Both installed demo APKs are signed with the **public React Native template debu
 
 **No release key exists yet. Creating one needs explicit owner approval.**
 
-## Creating the release (upload) keystore, when approved
+## Owner decision (2026-11-28): separate release keys for the pilot
+
+The pilot APKs (versionCode 3) are signed with **two private upload keys, one per app**, created offline by the
+owner. A leak or loss of one key never affects the other app.
+
+| App | Keystore file (outside Git) | Alias | Fingerprint recorded in |
+|---|---|---|---|
+| Customer (`com.leiarealestate.customer`) | `D:\LEIA-signing\leia-customer-upload.p12` | `leia-customer-upload` | `toolchain.json` → `apps.customer.release_cert_sha256` |
+| Agent CRM (`com.leiarealestate.agent`) | `D:\LEIA-signing\leia-agent-upload.p12` | `leia-agent-upload` | `toolchain.json` → `apps.agent.release_cert_sha256` |
+
+Rules:
+- Each keystore has its **own** password (password manager, at least 20 random characters). PKCS12 uses the same
+  password for the store and the key.
+- Passwords are typed only at `keytool`'s or the build script's hidden prompt. Never on a command line
+  (PowerShell saves typed commands in its history file), never in files, Git, Render, CI, chat or email.
+- `D:\LEIA-signing` must not be inside the repository or a cloud-synced folder (OneDrive, Google Drive).
+- Only the **public certificate** (`*.cert.pem`) and its fingerprint may leave the machine.
+- CI (`check_android_config.py`) refuses a shared fingerprint, the public debug fingerprint, or any tracked
+  keystore file.
+
+### Creating the two keystores (owner, offline)
+
+Disconnect Wi-Fi first (optional but recommended), then in a new PowerShell window:
+
+```powershell
+$kt = 'D:\Java\temurin-17.0.21+9\bin\keytool.exe'
+New-Item -ItemType Directory -Force D:\LEIA-signing | Out-Null
+& $kt -genkeypair -v -storetype PKCS12 -keystore D:\LEIA-signing\leia-customer-upload.p12 `
+    -alias leia-customer-upload -keyalg RSA -keysize 4096 -validity 10000 `
+    -dname "CN=LEIA Customer App, O=LEIA Real Estate, L=Visakhapatnam, C=IN"
+& $kt -genkeypair -v -storetype PKCS12 -keystore D:\LEIA-signing\leia-agent-upload.p12 `
+    -alias leia-agent-upload -keyalg RSA -keysize 4096 -validity 10000 `
+    -dname "CN=LEIA Agent CRM, O=LEIA Real Estate, L=Visakhapatnam, C=IN"
+```
+`keytool` asks for each password twice (nothing is shown while typing). Then export the **public** certificates
+(asks for the password once more):
+
+```powershell
+& $kt -exportcert -rfc -keystore D:\LEIA-signing\leia-customer-upload.p12 -alias leia-customer-upload -file D:\LEIA-signing\leia-customer-upload.cert.pem
+& $kt -exportcert -rfc -keystore D:\LEIA-signing\leia-agent-upload.p12 -alias leia-agent-upload -file D:\LEIA-signing\leia-agent-upload.cert.pem
+```
+The fingerprints are read from the `.cert.pem` files (`keytool -printcert -file …`, no password needed) and
+recorded in `toolchain.json` in a reviewed commit.
+
+### Backups (do all three, for both keystores)
+Windows 11 Home cannot create BitLocker-encrypted USB drives, so each copy is wrapped in an encrypted archive:
+1. Install 7-Zip from the official site (7-zip.org).
+2. Make one archive per keystore: right-click the `.p12` → 7-Zip → Add to archive → format **7z**, encryption
+   **AES-256**, tick **Encrypt file names**, and use a long passphrase that differs from the keystore password
+   (store it in the password manager entry).
+3. Copy the archives to: (a) a USB drive kept at home, (b) a second USB drive kept at another place, (c) private
+   cloud storage. After each copy, compare SHA-256 (`Get-FileHash`) with the original archive.
+4. The password manager entries "LEIA Customer upload key" and "LEIA Agent upload key" hold: alias, keystore
+   password, archive passphrase, both fingerprints, creation date and the backup locations.
+5. Test a restore once: extract one archive to a temporary folder, run `keytool -list -keystore <file>`, then
+   delete the temporary copy.
+
+### Building with the release keys
+```powershell
+.\scripts\android\build-customer.ps1 -Commit <sha> -ApiUrl https://leia-backend-staging.onrender.com -Signing release -KeystorePath D:\LEIA-signing\leia-customer-upload.p12
+.\scripts\android\build-agent.ps1    -Commit <sha> -ApiUrl https://leia-backend-staging.onrender.com -Signing release -KeystorePath D:\LEIA-signing\leia-agent-upload.p12
+```
+The script asks for the password with a hidden prompt. It checks that the key opens and matches the recorded
+fingerprint before building. It keeps the password in memory and removes it from the environment, so npm
+install scripts, Expo and Gradle never see it. The password is used only for the final `apksigner` step.
+Adding `-DryRun` runs only the toolchain, source and key checks.
+
+## Creating a single release (upload) keystore (superseded 2026-11-28 by the per-app keys above)
 Run on the owner's machine, offline. The keystore is never created inside the repository.
 ```powershell
 $jdk = 'D:\Java\temurin-17.0.21+9'
