@@ -822,7 +822,8 @@ def test_temple_chat_returns_shortest_walk_without_saving_map_data(monkeypatch):
     properties = [{"id": str(first_id)}, {"id": str(second_id)}]
     with TestClient(main.app) as http:
         cursor.fetchone.side_effect = [
-            {"filters": filters}, {"properties": properties}, {"id": 1}, {"id": 2},
+            {"filters": filters}, {"properties": properties},
+            {"filters": filters}, {"user_message_id": 1, "assistant_message_id": 2},
         ]
         response = http.post("/chat", json={
             "message": "How far is the nearest temple?", "conversation_id": str(conversation_id),
@@ -834,7 +835,8 @@ def test_temple_chat_returns_shortest_walk_without_saving_map_data(monkeypatch):
         cursor.reset_mock()
         cursor.fetchone.side_effect = [
             {"filters": filters}, {"properties": properties},
-            {"title": "SS Castle", "latitude": 17.7, "longitude": 83.3}, {"id": 3}, {"id": 4},
+            {"title": "SS Castle", "latitude": 17.7, "longitude": 83.3},
+            {"filters": filters}, {"user_message_id": 3, "assistant_message_id": 4},
         ]
         response = http.post("/chat", json={
             "message": "How far is the nearest temple from listing 2?",
@@ -848,12 +850,15 @@ def test_temple_chat_returns_shortest_walk_without_saving_map_data(monkeypatch):
     assert result["filters"] == filters
     queries = [call.args for call in cursor.execute.call_args_list]
     assert queries[2][1] == (second_id,)
-    assert queries[4][1][1] == "Ask again to get a fresh walking estimate from Google Maps."
+    assert "FOR UPDATE" in queries[3][0]  # Google was called between the two database phases
+    assert queries[4][1]["reply"] == "Ask again to get a fresh walking estimate from Google Maps."
+    assert "Shiva temple" not in json.dumps(queries[4][1], default=str)
     assert len(calls) == 2
 
 
 def test_selected_property_facts_and_walk_use_only_that_listing(monkeypatch):
     import rate_limits
+    import json
     monkeypatch.setattr(rate_limits, "consume", lambda *args: None)
     import importlib
     from unittest.mock import MagicMock
@@ -887,7 +892,7 @@ def test_selected_property_facts_and_walk_use_only_that_listing(monkeypatch):
         def ask(message, selected_listing=listing):
             cursor.reset_mock()
             cursor.fetchone.side_effect = [
-                {"filters": filters}, selected_listing, {"id": 1}, {"id": 2},
+                {"filters": filters}, selected_listing, {"filters": filters}, {"user_message_id": 1, "assistant_message_id": 2},
             ]
             response = http.post("/chat", json={
                 "message": message, "conversation_id": str(conversation_id),
@@ -918,11 +923,12 @@ def test_selected_property_facts_and_walk_use_only_that_listing(monkeypatch):
         assert "no longer available" in ask("How big is it?", None)
         assert "450 m" in ask("How far is the nearest hospital?")
         walk.assert_called_once_with(17.7, 83.3, "hospitals")
-        assert cursor.execute.call_args_list[3].args[1][1] == (
-            "Ask again to get a fresh walking estimate from Google Maps."
-        )
-        for index in (2, 3):
-            assert cursor.execute.call_args_list[index].args[1][-1] == property_id
+        assert "FOR UPDATE" in cursor.execute.call_args_list[2].args[0]
+        save = cursor.execute.call_args_list[3].args
+        assert save[1]["reply"] == "Ask again to get a fresh walking estimate from Google Maps."
+        assert "450 m" not in json.dumps(save[1], default=str)
+        # Both saved messages (user and assistant rows) carry the selected property.
+        assert save[1]["property_id"] == property_id and save[0].count("%(property_id)s") == 2
 
         cursor.reset_mock()
         cursor.fetchone.side_effect = [{"id": conversation_id, "title": "Test", "filters": filters}]

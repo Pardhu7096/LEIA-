@@ -49,3 +49,18 @@ def _guarded_connect(conninfo="", *args, **kwargs):
 
 
 psycopg.connect = _guarded_connect
+
+# psycopg_pool opens connections through Connection.connect: guard that path too.
+_real_class_connect = psycopg.Connection.connect.__func__
+
+
+def _guarded_class_connect(cls, conninfo="", *args, **kwargs):
+    if not _TEST_DATABASE_URL or conninfo != _TEST_DATABASE_URL:
+        raise RuntimeError(
+            "Blocked a pooled database connection during tests. Only TEST_DATABASE_URL "
+            "pointing at a local disposable database is allowed."
+        )
+    return _real_class_connect(cls, conninfo, *args, **kwargs)
+
+
+psycopg.Connection.connect = classmethod(_guarded_class_connect)

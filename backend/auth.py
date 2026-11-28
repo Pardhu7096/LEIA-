@@ -439,6 +439,8 @@ def get_current_user(
         raise unauthorized
 
     with get_connection() as connection:
+        # One read on every authenticated request: autocommit skips the BEGIN/COMMIT round trips.
+        connection.autocommit = True
         with connection.cursor() as cursor:
             # Read the current role from the database on each request.
             cursor.execute(

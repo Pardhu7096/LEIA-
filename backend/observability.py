@@ -8,10 +8,13 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+import os
 import re
 import sys
 import time
 import uuid
+
+import db_metrics
 
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
 _VALID_ID = re.compile(r"^[A-Za-z0-9-]{8,64}$")
@@ -25,17 +28,42 @@ if not logger.handlers:
     logger.propagate = False
 
 
+def _flag(name: str, default: str) -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def install_request_ids(app) -> None:
     @app.middleware("http")
     async def request_id_middleware(request, call_next):
         incoming = request.headers.get("x-request-id", "")
         request_id = incoming if _VALID_ID.match(incoming) else uuid.uuid4().hex
         token = request_id_var.set(request_id)
+        stats, stats_token = db_metrics.start_request()
+        status = 500
         try:
             response = await call_next(request)
+            status = response.status_code
         finally:
             request_id_var.reset(token)
+            db_metrics.end_request(stats_token)
+            total_ms = (time.perf_counter() - stats.started) * 1000
+            try:
+                slow_ms = float(os.getenv("LEIA_SLOW_REQUEST_MS", "1500"))
+            except ValueError:
+                slow_ms = 1500.0
+            if total_ms >= slow_ms or stats.exhausted:
+                route = request.scope.get("route")
+                logger.info(json.dumps({
+                    "event": "slow_request", "request_id": request_id, "method": request.method,
+                    "route": getattr(route, "path", "unmatched"), "status": status,
+                    "latency_ms": round(total_ms, 1), **stats.as_dict()}))
         response.headers["X-Request-ID"] = request_id
+        if _flag("LEIA_SERVER_TIMING", "false"):
+            # Aggregate numbers only (no SQL, no identifiers): lets staging measure latency remotely.
+            response.headers["Server-Timing"] = (
+                f"total;dur={total_ms:.1f}, db-acquire;dur={stats.acquire_ms:.1f}, "
+                f"db-query;dur={stats.query_ms:.1f};desc=\"{stats.queries} queries\", "
+                f"db-conn;desc=\"{stats.connections} connections\", ai;dur={stats.ai_ms:.1f}")
         return response
 
 
@@ -75,6 +103,10 @@ class SearchEvent:
 
     def emit(self) -> dict:
         self.data["latency_ms"] = round((time.perf_counter() - self.started) * 1000, 1)
+        stats = db_metrics.current.get()
+        if stats is not None:  # whole request so far, including auth and rate limits
+            self.data["request_latency_ms"] = round((time.perf_counter() - stats.started) * 1000, 1)
+            self.data.update(stats.as_dict())
         if self.data["fallback_reason"] in {"budget"}:
             self.data["budget_limited"] = True
         if self.data["fallback_reason"] in {"user_rate", "global_rate", "provider_rate_limited"}:

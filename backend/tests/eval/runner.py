@@ -124,10 +124,13 @@ def run(main=None, ai_guard=None):
 
     inventory, cases = load()
     filter_fn = make_filter(inventory, search_parser)
-    original = (main.filter_properties, main.client.chat.completions.create, ai_guard.guarded_completion)
+    original = (main.filter_properties, main.count_relaxed_matches, main.client.chat.completions.create,
+                ai_guard.guarded_completion)
     rows = []
     try:
         main.filter_properties = filter_fn
+        main.count_relaxed_matches = lambda variants: [
+            len(filter_fn(main.SearchFilters.model_validate(v))) for v in variants]
         for case in cases:
             calls = []
 
@@ -196,7 +199,8 @@ def run(main=None, ai_guard=None):
                 "pass": not failures, "failure_reason": "; ".join(failures),
             })
     finally:
-        main.filter_properties, main.client.chat.completions.create, ai_guard.guarded_completion = original
+        (main.filter_properties, main.count_relaxed_matches, main.client.chat.completions.create,
+         ai_guard.guarded_completion) = original
     return rows
 
 
