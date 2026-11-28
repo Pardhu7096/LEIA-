@@ -21,9 +21,11 @@ import {
 import { errorMessage, isProperty, readResponse } from "../lib/propertyApi";
 import {
   buildPayload,
+  builderSuggestions,
   fields,
   initialValues,
   locationMetaFromServer,
+  PROJECT_FACT_KEYS,
   sections,
   type LocationMeta,
 } from "../lib/propertyFields";
@@ -63,6 +65,20 @@ export default function PropertyDraftForm({
   // change the form. Closing the form cancels an attempt in progress.
   const attemptRef = useRef(0);
   const captureAbortRef = useRef<AbortController | null>(null);
+  // Builder names for suggestions (migration 014). Optional: older servers simply have none.
+  const [builders, setBuilders] = useState<string[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    authFetch("/staff/builders", { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (Array.isArray(data?.builders)) {
+          setBuilders(data.builders.map((b: { name?: unknown }) => b.name).filter((n: unknown): n is string => typeof n === "string"));
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [authFetch]);
   useEffect(() => {
     return () => {
       attemptRef.current += 1;
@@ -123,6 +139,15 @@ export default function PropertyDraftForm({
         const next = initialValues();
         for (const field of fields) {
           const value = data[field.key];
+          // A server without migration 014 has no project facts: keep the "not recorded" defaults.
+          if (value === undefined && PROJECT_FACT_KEYS.has(field.key)) continue;
+          if (field.kind === "multi") {
+            if (!Array.isArray(value) || value.some((item) => !field.choices?.some(([choice]) => choice === item))) {
+              throw new Error("The server returned incomplete draft details.");
+            }
+            next[field.key] = value.join(",");
+            continue;
+          }
           if (
             value === undefined ||
             (value !== null &&
@@ -233,7 +258,34 @@ export default function PropertyDraftForm({
               {section.fields.map((field) => (
                 <View key={field.key}>
                   <Text style={s.label}>{field.label}</Text>
-                  {field.choices ? (
+                  {field.kind === "multi" && field.choices ? (
+                    <View style={s.actions}>
+                      {field.choices.map(([value, label]) => {
+                        const selected = (values[field.key] || "").split(",").includes(value);
+                        return (
+                          <Pressable
+                            key={value}
+                            accessibilityRole="checkbox"
+                            accessibilityLabel={`${field.label}: ${label}`}
+                            accessibilityState={{ checked: selected, disabled: saving }}
+                            disabled={saving}
+                            style={[s.choice, selected && s.choiceSelected]}
+                            onPress={() => {
+                              setValues((current) => {
+                                const picked = new Set((current[field.key] || "").split(",").filter(Boolean));
+                                if (picked.has(value)) picked.delete(value);
+                                else picked.add(value);
+                                return { ...current, [field.key]: [...picked].sort().join(",") };
+                              });
+                              setDirty(true);
+                            }}
+                          >
+                            <Text style={s.secondaryText}>{label}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : field.choices ? (
                     <View style={s.actions}>
                       {field.choices.map(([value, label]) => (
                         <Pressable
@@ -290,6 +342,25 @@ export default function PropertyDraftForm({
                       placeholderTextColor="#879389"
                     />
                   )}
+                  {field.kind === "builder" ? (
+                    <View style={s.actions}>
+                      {builderSuggestions(builders, values[field.key] || "").map((name) => (
+                        <Pressable
+                          key={name}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Use builder ${name}`}
+                          disabled={saving}
+                          style={s.choice}
+                          onPress={() => {
+                            setValues((current) => ({ ...current, [field.key]: name }));
+                            setDirty(true);
+                          }}
+                        >
+                          <Text style={s.secondaryText}>{name}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               ))}
               {section.title === "Location" ? (

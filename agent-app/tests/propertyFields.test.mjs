@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildPayload,
+  builderSuggestions,
   fields,
   initialValues,
   locationMetaFromServer,
+  PROJECT_FACT_KEYS,
 } from "../src/lib/propertyFields.ts";
 
 const draft = () => ({ ...initialValues(), title: "Madhura Apartments" });
@@ -82,6 +84,9 @@ test("all editable fields survive reopening and serializing a draft", () => {
     else if (field.key === "owner_phone") values[field.key] = "+91 9876543210";
     else values[field.key] = "Collected value";
   }
+  // Migration 014 rules: a real RERA number, and a possession date needs "under construction".
+  values.rera_number = "P02400012345";
+  values.construction_status = "under_construction";
   const saved = buildPayload(values, true);
   const reopened = Object.fromEntries(
     fields.map((field) => [
@@ -125,4 +130,58 @@ test("requires owner contact details when listing consent is recorded", () => {
   assert.throws(() => buildPayload(draft(), true));
   const payload = buildPayload({ ...draft(), owner_name: "Owner", owner_phone: "+91 9876543210" }, true);
   assert.equal(payload.listing_consent, true);
+});
+
+
+// Migration 014: builder and project facts.
+test("project facts default to not recorded, amenities to an empty list", () => {
+  const payload = buildPayload(draft(), false);
+  for (const key of ["lift", "gated_community", "security", "construction_status", "rera_source", "project_source"]) {
+    assert.equal(payload[key], "unknown", key);
+  }
+  assert.deepEqual(payload.amenities, []);
+  assert.equal(payload.builder_name, null);
+  assert.equal(payload.possession_date, null);
+});
+
+test("amenities are sent as a de-duplicated, sorted list of known values", () => {
+  const payload = buildPayload({ ...draft(), amenities: "pool,gym,pool" }, false);
+  assert.deepEqual(payload.amenities, ["gym", "pool"]);
+  assert.throws(() => buildPayload({ ...draft(), amenities: "gym,helipad" }, false), /valid values/);
+});
+
+test("explicit no is kept distinct from unknown", () => {
+  const payload = buildPayload({ ...draft(), lift: "no", gated_community: "yes" }, false);
+  assert.equal(payload.lift, "no");
+  assert.equal(payload.gated_community, "yes");
+});
+
+test("project fact validation gives plain-language messages", () => {
+  assert.throws(
+    () => buildPayload({ ...draft(), possession_date: "2027-03-31" }, false),
+    /under construction to record an expected possession date/,
+  );
+  assert.equal(
+    buildPayload({ ...draft(), construction_status: "under_construction", possession_date: "2027-03-31" }, false)
+      .possession_date,
+    "2027-03-31",
+  );
+  assert.throws(() => buildPayload({ ...draft(), floor_number: "9", total_floors: "5" }, false), /above the building/);
+  assert.throws(() => buildPayload({ ...draft(), rera_source: "owner_reported" }, false), /RERA registration number/);
+  assert.throws(() => buildPayload({ ...draft(), rera_number: "bad number!" }, false), /RERA number exactly/);
+  const ok = buildPayload({ ...draft(), rera_number: "P02400012345", rera_source: "owner_reported" }, false);
+  assert.equal(ok.rera_number, "P02400012345");
+});
+
+test("builder suggestions ignore case, spacing and punctuation and stop at an exact match", () => {
+  const known = ["Raju Constructions", "Sri Sai Developers", "Lakshmi Homes"];
+  assert.deepEqual(builderSuggestions(known, "raju"), ["Raju Constructions"]);
+  assert.deepEqual(builderSuggestions(known, "SRI-SAI"), ["Sri Sai Developers"]);
+  assert.deepEqual(builderSuggestions(known, "raju  constructions."), []);
+  assert.deepEqual(builderSuggestions(known, ""), []);
+});
+
+test("every project fact field is a form field (old servers fall back to defaults)", () => {
+  const keys = new Set(fields.map((field) => field.key));
+  for (const key of PROJECT_FACT_KEYS) assert.ok(keys.has(key), key);
 });

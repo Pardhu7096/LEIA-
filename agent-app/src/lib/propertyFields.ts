@@ -3,7 +3,8 @@ export type Field = {
   label: string;
   maxLength?: number;
   multiline?: boolean;
-  kind?: "integer" | "decimal" | "coordinate" | "date";
+  // "multi": several choices (sent as a list); "builder": text with suggestions from /staff/builders.
+  kind?: "integer" | "decimal" | "coordinate" | "date" | "multi" | "builder";
   min?: number;
   max?: number;
   choices?: readonly (readonly [string, string])[];
@@ -274,6 +275,86 @@ export const sections: { title: string; fields: Field[] }[] = [
     ],
   },
   {
+    title: "Project and builder",
+    fields: [
+      { key: "builder_name", label: "Builder / developer", maxLength: 200, kind: "builder" },
+      { key: "project_name", label: "Project name", maxLength: 200 },
+      { key: "rera_number", label: "RERA registration number", maxLength: 50 },
+      {
+        key: "rera_source",
+        label: "RERA status",
+        choices: [
+          ["unknown", "Not recorded"],
+          ["owner_reported", "Reported by owner / builder (not verified)"],
+          ["document_checked", "Verified from documents (admin only)"],
+        ],
+      },
+      {
+        key: "rera_checked_on",
+        label: "RERA checked on (YYYY-MM-DD)",
+        kind: "date",
+        maxLength: 10,
+      },
+      {
+        key: "construction_status",
+        label: "Construction status",
+        choices: [
+          ["unknown", "Unknown / not checked"],
+          ["ready_to_move", "Ready to move"],
+          ["under_construction", "Under construction"],
+          ["not_applicable", "Not applicable"],
+        ],
+      },
+      {
+        key: "possession_date",
+        label: "Expected possession (YYYY-MM-DD, under construction only)",
+        kind: "date",
+        maxLength: 10,
+      },
+      { key: "floor_number", label: "Property floor (0 = ground)", kind: "integer", min: 0, max: 200 },
+      { key: "total_floors", label: "Total floors in building", kind: "integer", min: 1, max: 200 },
+    ],
+  },
+  {
+    title: "Building amenities",
+    fields: [
+      { key: "lift", label: "Lift available?", choices: answer },
+      { key: "gated_community", label: "Gated community?", choices: answer },
+      {
+        key: "security",
+        label: "Security",
+        choices: [
+          ["unknown", "Unknown / not checked"],
+          ["none", "None"],
+          ["guard", "Security guard"],
+          ["cctv", "CCTV"],
+          ["guard_and_cctv", "Guard and CCTV"],
+          ["not_applicable", "Not applicable"],
+        ],
+      },
+      {
+        key: "amenities",
+        label: "Amenities confirmed (select all that apply)",
+        kind: "multi",
+        choices: [
+          ["gym", "Gym"],
+          ["pool", "Swimming pool"],
+          ["clubhouse", "Clubhouse"],
+          ["garden", "Garden"],
+          ["play_area", "Children's play area"],
+          ["community_hall", "Community hall"],
+        ],
+      },
+      {
+        key: "project_notes",
+        label: "Project notes — staff only",
+        maxLength: 2000,
+        multiline: true,
+      },
+      ...evidence("project"),
+    ],
+  },
+  {
     title: "Private owner details",
     fields: [
       { key: "owner_name", label: "Owner name — staff only", maxLength: 150 },
@@ -289,13 +370,30 @@ export const sections: { title: string; fields: Field[] }[] = [
 ];
 
 export const fields = sections.flatMap((section) => section.fields);
+
+// Fields added by migration 014. A draft from a server without them keeps these "not recorded".
+export const PROJECT_FACT_KEYS = new Set([
+  "builder_name", "project_name", "rera_number", "rera_source", "rera_checked_on",
+  "construction_status", "possession_date", "floor_number", "total_floors", "lift",
+  "gated_community", "security", "amenities", "project_notes", "project_source", "project_checked_on",
+]);
+
+/** Same normalization as the server's builder key: case, spacing and punctuation don't matter. */
+export const builderKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9ఀ-౿]/g, "");
+
+/** Up to four existing builders matching what the agent typed (none once it matches exactly). */
+export function builderSuggestions(builders: string[], typed: string): string[] {
+  const key = builderKey(typed);
+  if (!key || builders.some((name) => builderKey(name) === key)) return [];
+  return builders.filter((name) => builderKey(name).includes(key)).slice(0, 4);
+}
 export const initialValues = () =>
   Object.fromEntries(
     fields.map((field) => [
       field.key,
       field.key === "property_type"
         ? "flat"
-        : field.choices && !field.choices.some(([value]) => value === "")
+        : field.kind !== "multi" && field.choices && !field.choices.some(([value]) => value === "")
           ? "unknown"
           : "",
     ]),
@@ -322,11 +420,19 @@ export function buildPayload(
   consent: boolean,
   location: LocationMeta | null = null,
 ) {
-  const payload: Record<string, string | number | boolean | null> = {
+  const payload: Record<string, string | number | boolean | null | string[]> = {
     listing_consent: consent,
   };
   for (const field of fields) {
     const value = (values[field.key] || "").trim();
+    if (field.kind === "multi") {
+      const picked = value ? [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))] : [];
+      if (picked.some((item) => !field.choices?.some(([choice]) => choice === item))) {
+        throw new Error(`Choose valid values for ${field.label}.`);
+      }
+      payload[field.key] = picked.sort();
+      continue;
+    }
     payload[field.key] = value || null;
     if (field.maxLength && value.length > field.maxLength) {
       throw new Error(
@@ -396,6 +502,23 @@ export function buildPayload(
   }
   if (payload.pincode && !/^\d{6}$/.test(String(payload.pincode))) {
     throw new Error("PIN code must contain exactly six digits.");
+  }
+  // Project facts (migration 014): same rules as the server, with plain-language messages.
+  if (payload.rera_number && !/^[A-Za-z0-9/_.-]{5,50}$/.test(String(payload.rera_number))) {
+    throw new Error("Enter the RERA number exactly as registered (letters, numbers, / . _ - only).");
+  }
+  if (!payload.rera_number && payload.rera_source !== "unknown") {
+    throw new Error("Enter the RERA registration number before setting its status.");
+  }
+  if (payload.possession_date && payload.construction_status !== "under_construction") {
+    throw new Error("Set construction status to under construction to record an expected possession date.");
+  }
+  if (
+    typeof payload.floor_number === "number" &&
+    typeof payload.total_floors === "number" &&
+    payload.floor_number > payload.total_floors
+  ) {
+    throw new Error("The property floor can't be above the building's total floors.");
   }
   // Coordinate provenance: GPS metadata travels only with GPS-captured coordinates;
   // typed or edited coordinates are "manual"; no coordinates means no metadata.

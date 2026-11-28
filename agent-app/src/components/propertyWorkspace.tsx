@@ -35,8 +35,41 @@ export default function PropertyWorkspace({
   const [actionBusy, setActionBusy] = useState(false);
   const actionInFlight = useRef(false);
   const [review, setReview] = useState<
-    (PropertySummary & { area_sqft: string | number; bedrooms: number | null; listing_consent: boolean }) | null
+    (PropertySummary & {
+      area_sqft: string | number;
+      bedrooms: number | null;
+      listing_consent: boolean;
+      builder_name?: string | null;
+      construction_status?: string;
+      rera_number?: string | null;
+      rera_source?: string;
+    }) | null
   >(null);
+
+  // Admin only: confirm the recorded RERA number against the registration documents (migration 014).
+  async function verifyRera(verified: boolean) {
+    if (!review || actionInFlight.current) return;
+    actionInFlight.current = true;
+    setActionBusy(true);
+    onBusyChange(true);
+    setActionError(null);
+    try {
+      const updated = await readResponse(await authFetch(`/staff/properties/${review.id}/rera-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: review.version, verified }),
+      }));
+      setReview(updated);
+      setSuccess(verified ? "RERA marked as verified from documents." : "RERA verification removed.");
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setActionError({ id: review.id, message: errorMessage(error) });
+    } finally {
+      actionInFlight.current = false;
+      setActionBusy(false);
+      onBusyChange(false);
+    }
+  }
 
   async function listingAction(property: PropertySummary, action: "review" | "submit" | "approve") {
     if (actionInFlight.current) return;
@@ -274,6 +307,31 @@ export default function PropertyWorkspace({
                 <Text style={s.muted}>
                   {review.listing_consent ? "Owner consent recorded" : "Owner consent missing"}
                 </Text>
+                {review.builder_name ? <Text style={s.muted}>Builder: {review.builder_name}</Text> : null}
+                {review.construction_status && review.construction_status !== "unknown" ? (
+                  <Text style={s.muted}>Construction: {review.construction_status.replace(/_/g, " ")}</Text>
+                ) : null}
+                <Text style={s.muted}>
+                  {!review.rera_number
+                    ? "RERA: not recorded"
+                    : review.rera_source === "document_checked"
+                      ? `RERA ${review.rera_number}: verified from documents`
+                      : `RERA ${review.rera_number}: not verified (customers won't see this number)`}
+                </Text>
+                {review.rera_number ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    style={s.secondary}
+                    disabled={actionBusy}
+                    onPress={() => void verifyRera(review.rera_source !== "document_checked")}
+                  >
+                    <Text style={s.secondaryText}>
+                      {review.rera_source === "document_checked"
+                        ? "Remove RERA verification"
+                        : "I checked the documents: mark RERA verified"}
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <PropertyMedia
                   propertyId={review.id}
                   version={review.version}
