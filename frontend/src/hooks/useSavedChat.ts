@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { API_URL, useAuth } from "../context/AuthContext";
+import { projectFacts, type Fact, type ProjectFactsInput } from "../lib/projectFacts";
 
 type FacingDirection =
   | "north"
@@ -12,7 +13,7 @@ type FacingDirection =
   | "west"
   | "northwest";
 
-type ApiProperty = {
+type ApiProperty = ProjectFactsInput & {
   id: string | number;
   title: string;
   location: string;
@@ -35,6 +36,8 @@ export type Property = {
   isSample: boolean;
   image: string | null;
   tour: string | null;
+  // Builder and project facts (empty for older saved messages or servers).
+  facts: Fact[];
 };
 
 export type Message = {
@@ -109,6 +112,7 @@ function makeCards(listings: ApiProperty[]): Property[] {
       ? `${API_URL}${property.tour}`
       : null,
     isSample: typeof property.id === "number",
+    facts: projectFacts(property),
   }));
 }
 

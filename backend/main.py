@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from auth import get_current_user, router as auth_router
-from crm import router as crm_router
+from crm import builder_key, builders_router, router as crm_router
 import database
 from database import get_connection
 from marketing_jobs import router as marketing_router
@@ -72,6 +72,7 @@ async def pool_exhausted(_request, _error):
 app.include_router(auth_router)
 app.include_router(native_sessions_router)
 app.include_router(crm_router)
+app.include_router(builders_router)
 app.include_router(media_router)
 app.include_router(nearby_router)
 app.include_router(marketing_router)
@@ -105,6 +106,23 @@ class SearchFilters(BaseModel):
     parking: bool | None = None
     power_backup: bool | None = None
     sort: Literal["price_asc", "price_desc", "newest", "area_desc"] | None = None
+    # Migration 014 project facts. Set only by the deterministic parser (never by AI output); an
+    # unrecorded ("unknown") value never matches.
+    builder: str | None = Field(default=None, max_length=100)
+    construction_status: Literal["ready_to_move", "under_construction"] | None = None
+    possession_by: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    lift: bool | None = None
+    gated: bool | None = None
+    security: bool | None = None
+    rera_verified: bool | None = None
+    amenities: list[Literal["gym", "pool", "clubhouse", "garden", "play_area", "community_hall"]] | None = Field(
+        default=None, max_length=6)
+
+
+# Filters only the deterministic parser may set: Groq must never invent builder, RERA, possession or
+# amenity requirements.
+DETERMINISTIC_ONLY_FILTERS = ("builder", "construction_status", "possession_by", "lift", "gated",
+                              "security", "rera_verified", "amenities")
 
 
 class SearchRequirements(SearchFilters):
@@ -147,7 +165,69 @@ PROPERTY_FACTS = (
     ("property_type", r"\b(?:type|apartment|flat|independent house|plot)\b", "Property type"),
     ("car_parking_spaces", r"\b(?:parking|garage)\b", "Car parking spaces"),
     ("maintenance_monthly", r"\bmaintenance\b", "Monthly maintenance"),
+    ("builder_text", r"\b(?:builder|developer|built by|constructed by)\b|బిల్డర్", "Builder"),
+    ("project_text", r"\b(?:project|apartment name|venture)\b|ప్రాజెక్ట్", "Project"),
+    ("rera_text", r"\brera\b|రెరా", "RERA registration"),
+    ("construction_text", r"\b(?:ready to move|possession|under construction|handover|completion|completed)\b"
+                          r"|పొసెషన్|గృహప్రవేశ", "Construction status"),
+    ("floor_text", r"\b(?:floors?|storey|storeys|stories)\b|అంతస్తు", "Floor"),
+    ("lift_text", r"\b(?:lift|elevator)\b|లిఫ్ట్", "Lift"),
+    ("gated_text", r"\bgated\b|గేటెడ్", "Gated community"),
+    ("security_text", r"\b(?:security|cctv|watchman|guards?)\b|సెక్యూరిటీ", "Security"),
+    ("amenities_text", r"\b(?:amenit\w*|facilit\w*|gym|pool|swimming|club ?house|garden|play area|community hall)\b"
+                       r"|జిమ్|స్విమ్మింగ్", "Amenities"),
 )
+SOURCE_LABELS = {"observed": "observed by the agent", "owner_reported": "owner reported",
+                 "document_checked": "verified from documents"}
+AMENITY_LABELS = {"gym": "Gym", "pool": "Swimming pool", "clubhouse": "Clubhouse", "garden": "Garden",
+                  "play_area": "Children's play area", "community_hall": "Community hall"}
+SECURITY_LABELS = {"none": "None", "guard": "Security guard", "cctv": "CCTV",
+                   "guard_and_cctv": "Security guard and CCTV", "not_applicable": "Not applicable"}
+ANSWER_LABELS = {"yes": "Yes", "no": "No", "not_applicable": "Not applicable"}
+
+
+def project_fact_texts(listing: dict) -> dict:
+    """Customer wording for migration 014 facts. Unknown -> None ("Not listed"); every recorded value
+    carries its source; a RERA number appears only when an admin verified it from documents."""
+    source = SOURCE_LABELS.get(listing.get("project_source") or "")
+    tag = f" ({source})" if source else " (source not recorded)"
+
+    def answer(value):
+        return f"{ANSWER_LABELS[value]}{tag}" if value in ANSWER_LABELS else None
+
+    status = listing.get("construction_status")
+    if status == "ready_to_move":
+        construction = f"Ready to move{tag}"
+    elif status == "under_construction":
+        when = listing.get("possession_date")
+        construction = (f"Under construction, expected possession {when} (an estimate, not a guarantee){tag}"
+                        if when else f"Under construction, possession date not recorded{tag}")
+    elif status == "not_applicable":
+        construction = "Not applicable"
+    else:
+        construction = None
+    floor, total = listing.get("floor_number"), listing.get("total_floors")
+    floor_text = (f"{'Ground' if floor == 0 else floor} of {total} floors" if floor is not None and total
+                  else f"{'Ground' if floor == 0 else floor}" if floor is not None
+                  else f"{total} floors in the building" if total else None)
+    amenities = listing.get("amenities") or []
+    if listing.get("rera_verified"):
+        rera = f"{listing.get('rera_number')} (verified from documents by LEIA)"
+    else:
+        rera = "Not verified by LEIA yet. Please ask the agent for the registration documents."
+    return {
+        "builder_text": listing.get("builder"),
+        "project_text": listing.get("project_name"),
+        "rera_text": rera,
+        "construction_text": construction,
+        "floor_text": f"{floor_text}{tag}" if floor_text else None,
+        "lift_text": answer(listing.get("lift")),
+        "gated_text": answer(listing.get("gated_community")),
+        "security_text": (f"{SECURITY_LABELS[listing['security']]}{tag}"
+                          if listing.get("security") in SECURITY_LABELS else None),
+        "amenities_text": (", ".join(AMENITY_LABELS[a] for a in amenities) + tag) if amenities else None,
+    }
+
 
 
 EXTRACTION_PROMPT = """
@@ -265,6 +345,18 @@ SEARCH_PREDICATES = {
         OR coalesce(car_parking_spaces, 0) > 0 OR parking_type IN ('open', 'covered', 'both'))""",
     "power_backup": """(%(power_backup{s})s::boolean IS NOT TRUE
         OR power_backup IN ('common_areas', 'partial_home', 'full_home'))""",
+    # Migration 014. Builder: normalized-name prefix ("raju" matches "Raju Constructions").
+    "builder": """(%(builder{s})s::text IS NULL OR EXISTS (
+        SELECT 1 FROM public.builders AS fb WHERE fb.id = p.builder_id AND fb.name_key LIKE %(builder{s})s || '%%'))""",
+    "construction_status": "(%(construction_status{s})s::text IS NULL OR construction_status = %(construction_status{s})s)",
+    "possession_by": """(%(possession_by{s})s::date IS NULL OR construction_status = 'ready_to_move'
+        OR (construction_status = 'under_construction' AND possession_date <= %(possession_by{s})s::date))""",
+    "lift": "(%(lift{s})s::boolean IS NOT TRUE OR lift = 'yes')",
+    "gated": "(%(gated{s})s::boolean IS NOT TRUE OR gated_community = 'yes')",
+    "security": "(%(security{s})s::boolean IS NOT TRUE OR security IN ('guard', 'cctv', 'guard_and_cctv'))",
+    "rera_verified": """(%(rera_verified{s})s::boolean IS NOT TRUE
+        OR (rera_source = 'document_checked' AND rera_number IS NOT NULL))""",
+    "amenities": "(%(amenities{s})s::text[] IS NULL OR amenities @> %(amenities{s})s::text[])",
 }
 # Customers only ever see approved, available listings.
 PUBLISHED = "status = 'approved' AND availability = 'available'"
@@ -279,6 +371,9 @@ def _search_conditions(filters: dict, suffix: str = "") -> tuple[str, dict]:
     params = {f"{name}{suffix}": filters.get(name) for name in SEARCH_PREDICATES}
     params[f"location{suffix}"] = location or None
     params[f"location_keys{suffix}"] = search_parser.location_keys(location) or []
+    builder = filters.get("builder")
+    params[f"builder{suffix}"] = (builder_key(builder) or None) if builder else None
+    params[f"amenities{suffix}"] = filters.get("amenities") or None
     sql = " AND ".join(template.replace("{s}", suffix) for template in SEARCH_PREDICATES.values())
     return sql, params
 
@@ -306,8 +401,15 @@ def filter_properties(filters: SearchFilters) -> list[dict]:
                 p.property_type,
                 p.facing,
                 '/property-media/' || coalesce(gallery_cover.id, cover.id) AS image,
-                '/property-media/' || panorama.id || '/tour' AS tour
+                '/property-media/' || panorama.id || '/tour' AS tour,
+                builder.name AS builder, p.project_name, p.construction_status,
+                to_char(p.possession_date, 'YYYY-MM-DD') AS possession_date,
+                p.floor_number, p.total_floors, p.lift, p.gated_community, p.security, p.amenities,
+                p.project_source,
+                (p.rera_source = 'document_checked' AND p.rera_number IS NOT NULL) AS rera_verified,
+                CASE WHEN p.rera_source = 'document_checked' THEN p.rera_number END AS rera_number
             FROM public.properties AS p
+            LEFT JOIN public.builders AS builder ON builder.id = p.builder_id
             LEFT JOIN public.property_media AS gallery_cover
                 ON gallery_cover.property_id = p.id AND gallery_cover.is_gallery_cover
             LEFT JOIN public.property_media AS cover
@@ -399,7 +501,7 @@ def generate_chat_reply(request: ChatRequest, extract=None) -> dict:
         # Preserve omitted preferences while allowing explicit nulls
         # to clear individual filters.
         filter_updates = requirements.model_dump(
-            exclude={"intent", "question"},
+            exclude={"intent", "question", *DETERMINISTIC_ONLY_FILTERS},
             exclude_unset=True,
         )
 
@@ -495,6 +597,10 @@ COMPARE_QUESTION = re.compile(
 INFO_QUESTION = re.compile(r"^\s*(?:is|are|does|do|has|have|what|when|who|which builder|ఉందా|ఉన్నాయా)\b|\?\s*$", re.I)
 
 
+RERA_QUESTION_REPLY = ("LEIA shows a RERA number only after verifying it from the registration documents. "
+                       "Open a listing and ask “RERA?” to see its status, or search for “RERA verified flats”.")
+
+
 def safe_clarification(question: str | None) -> str | None:
     """AI clarifications may not state facts (prices, availability, approvals, distances)."""
     if not question:
@@ -514,6 +620,8 @@ def unsupported_note(labels: list[str]) -> str:
 
 def merge_filters(previous: dict, updates: dict) -> SearchFilters:
     updates = dict(updates)
+    if updates.get("amenities") and previous.get("amenities"):
+        updates["amenities"] = sorted(set(previous["amenities"]) | set(updates["amenities"]))
     if updates.get("max_price") is not None and "min_price" not in updates:
         updates["min_price"] = None
     if updates.get("min_price") is not None and "max_price" not in updates:
@@ -545,11 +653,18 @@ def suggest_alternatives(filters: SearchFilters) -> list[str]:
         (("parking",), "drop the parking requirement"),
         (("power_backup",), "drop the power-backup requirement"),
         (("min_area_sqft", "max_area_sqft"), "allow any size"),
+        (("builder",), "include all builders"),
+        (("construction_status", "possession_by"), "include any construction status"),
+        (("lift",), "drop the lift requirement"),
+        (("gated",), "drop the gated-community requirement"),
+        (("security",), "drop the security requirement"),
+        (("rera_verified",), "include listings whose RERA isn’t verified yet"),
+        (("amenities",), "drop the amenities requirement"),
     ]
     for fields, label in relax:
         if any(current.get(name) for name in fields):
             options.append(({name: None for name in fields}, label))
-    options = options[:6]
+    options = options[:8]
     try:
         counts = count_relaxed_matches(
             [SearchFilters.model_validate({**current, **change}).model_dump() for change, _ in options])
@@ -609,6 +724,10 @@ def answer_customer_search(message: str, saved: SearchFilters, user: dict, event
         event.set(route="deterministic")
         return run_search(SearchFilters(), event, [], [])
     if parsed.kind == "search":
+        if set(parsed.updates) == {"rera_verified"} and INFO_QUESTION.search(message):
+            # "Is it RERA approved?" is about one listing, not a search: never assert RERA here.
+            event.set(route="deterministic")
+            return {"reply": RERA_QUESTION_REPLY, **same}
         if not parsed.updates and parsed.unsupported and INFO_QUESTION.search(message):
             event.set(route="deterministic")
             return {"reply": unsupported_note(parsed.unsupported), **same}
@@ -645,6 +764,9 @@ def answer_customer_search(message: str, saved: SearchFilters, user: dict, event
         usage.cache_hit = hit
         return content
 
+    kept = {key: value for key, value in parsed.updates.items() if key in DETERMINISTIC_ONLY_FILTERS}
+    if kept:  # project-fact filters understood deterministically survive the AI step
+        saved = merge_filters(previous, kept)
     try:
         result = generate_chat_reply(ChatRequest(message=message, filters=saved), extract=extract)
     except ai_guard.AIUnavailable as error:
@@ -720,10 +842,16 @@ def compare_reply(cursor, conversation_id: UUID, message: str) -> str:
         except (KeyError, ValueError):
             return "One of those listings can’t be compared. Try a new search."
     cursor.execute(
-        """SELECT id, title, price, bedrooms, bathrooms, area_sqft::double precision AS area_sqft, facing,
-                  concat_ws(', ', nullif(locality, ''), nullif(city, '')) AS location, car_parking_spaces
-           FROM public.properties
-           WHERE id = ANY(%s) AND status = 'approved' AND availability = 'available'""",
+        """SELECT p.id, title, price, bedrooms, bathrooms, area_sqft::double precision AS area_sqft, p.facing,
+                  concat_ws(', ', nullif(locality, ''), nullif(city, '')) AS location, car_parking_spaces,
+                  builder.name AS builder, p.project_name, p.construction_status,
+            to_char(p.possession_date, 'YYYY-MM-DD') AS possession_date, p.floor_number, p.total_floors,
+            p.lift, p.gated_community, p.security, p.amenities, p.project_source,
+            (p.rera_source = 'document_checked' AND p.rera_number IS NOT NULL) AS rera_verified,
+            CASE WHEN p.rera_source = 'document_checked' THEN p.rera_number END AS rera_number
+           FROM public.properties AS p
+           LEFT JOIN public.builders AS builder ON builder.id = p.builder_id
+           WHERE p.id = ANY(%s) AND status = 'approved' AND availability = 'available'""",
         (ids,),
     )
     rows = {row["id"]: row for row in cursor.fetchall()}
@@ -737,6 +865,7 @@ def compare_reply(cursor, conversation_id: UUID, message: str) -> str:
         if row is None:
             blocks.append(f"Listing {n}: no longer available.")
             continue
+        texts = project_fact_texts(row)
         blocks.append("\n".join([
             f"Listing {n}: {row['title']}",
             f"Price: {show(row['price'], inr)}",
@@ -745,6 +874,12 @@ def compare_reply(cursor, conversation_id: UUID, message: str) -> str:
             f"Facing: {show(row['facing'], str.capitalize)}",
             f"Location: {show(row['location'])}",
             f"Car parking spaces: {show(row['car_parking_spaces'])}",
+            *[f"{label}: {value}" for label, value in (
+                ("Builder", texts["builder_text"]),
+                ("Construction", texts["construction_text"]), ("Lift", texts["lift_text"]),
+                ("Gated community", texts["gated_text"]), ("Amenities", texts["amenities_text"]),
+                ("RERA", "Verified from documents" if row["rera_verified"] else None),
+            ) if value],
         ]))
     return ("Comparison from LEIA’s approved listing records:\n\n" + "\n\n".join(blocks)
             + "\n\nDetails marked “Not listed” haven’t been verified. Please confirm them with the agent.")
@@ -913,9 +1048,15 @@ def selected_listing_reply(cursor, property_id: UUID, message: str, user: dict) 
         """
         SELECT title, latitude, longitude, area_sqft, price, bedrooms, bathrooms,
             concat_ws(', ', nullif(locality, ''), nullif(city, '')) AS location,
-            property_type, car_parking_spaces, maintenance_monthly, facing
-        FROM public.properties
-        WHERE id = %s AND status = 'approved' AND availability = 'available';
+            property_type, car_parking_spaces, maintenance_monthly, p.facing,
+            builder.name AS builder, p.project_name, p.construction_status,
+            to_char(p.possession_date, 'YYYY-MM-DD') AS possession_date, p.floor_number, p.total_floors,
+            p.lift, p.gated_community, p.security, p.amenities, p.project_source,
+            (p.rera_source = 'document_checked' AND p.rera_number IS NOT NULL) AS rera_verified,
+            CASE WHEN p.rera_source = 'document_checked' THEN p.rera_number END AS rera_number
+        FROM public.properties AS p
+        LEFT JOIN public.builders AS builder ON builder.id = p.builder_id
+        WHERE p.id = %s AND status = 'approved' AND availability = 'available';
         """,
         (property_id,),
     )
@@ -994,6 +1135,7 @@ def selected_listing_reply(cursor, property_id: UUID, message: str, user: dict) 
     area = listing["area_sqft"]
     facts = {
         **listing,
+        **project_fact_texts(listing),
         "facing": listing["facing"].capitalize() if listing["facing"] else None,
         "area": f"{area:,.2f}".rstrip("0").rstrip(".") + " sq ft" if area is not None else None,
         "property_type": listing["property_type"].replace("_", " ").capitalize(),

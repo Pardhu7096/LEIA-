@@ -25,11 +25,11 @@ def test_suite_shape():
     counts = {}
     for case in CASES:
         counts[case["category"]] = counts.get(case["category"], 0) + 1
-    assert len(CASES) >= 100 and len({c["id"] for c in CASES}) == len(CASES)
+    assert len(CASES) >= 124 and len({c["id"] for c in CASES}) == len(CASES)
     assert counts == {
         "budget_bhk_area": 20, "locality": 15, "facing_amenities": 10, "telugu": 15,
         "telugu_english_mixed": 10, "comparison_followup": 10, "missing_info_no_result": 10,
-        "security_abuse": 10,
+        "security_abuse": 10, "project_facts": 24,
     }
 
 
