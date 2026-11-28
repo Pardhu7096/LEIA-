@@ -37,6 +37,17 @@ def load():
     return inventory, cases
 
 
+def customer_facts(p):
+    """The migration 014 fields a customer payload carries (RERA number only when verified)."""
+    verified = p["rera_source"] == "document_checked" and bool(p["rera_number"])
+    return {"builder": p["builder"], "project_name": p["project_name"],
+            "construction_status": p["construction_status"], "possession_date": p["possession_date"],
+            "floor_number": p["floor_number"], "total_floors": p["total_floors"], "lift": p["lift"],
+            "gated_community": p["gated_community"], "security": p["security"], "amenities": p["amenities"],
+            "project_source": p["project_source"], "rera_verified": verified,
+            "rera_number": p["rera_number"] if verified else None}
+
+
 def make_filter(inventory, search_parser):
     def norm(value):
         return re.sub(r"[^a-z0-9ఀ-౿]", "", (value or "").lower())
@@ -69,9 +80,28 @@ def make_filter(inventory, search_parser):
                 continue
             if f["power_backup"] and p["power_backup"] not in ("common_areas", "partial_home", "full_home"):
                 continue
+            # Migration 014 project facts: same rules as the SQL predicates (unknown never matches).
+            if f["builder"] and not norm(p["builder"]).startswith(norm(f["builder"])):
+                continue
+            if f["construction_status"] and p["construction_status"] != f["construction_status"]:
+                continue
+            if f["possession_by"] and not (p["construction_status"] == "ready_to_move" or (
+                    p["construction_status"] == "under_construction" and p["possession_date"]
+                    and p["possession_date"] <= f["possession_by"])):
+                continue
+            if f["lift"] and p["lift"] != "yes":
+                continue
+            if f["gated"] and p["gated_community"] != "yes":
+                continue
+            if f["security"] and p["security"] not in ("guard", "cctv", "guard_and_cctv"):
+                continue
+            if f["rera_verified"] and not (p["rera_source"] == "document_checked" and p["rera_number"]):
+                continue
+            if f["amenities"] and not set(f["amenities"]) <= set(p["amenities"]):
+                continue
             rows.append({"id": p["key"], "title": p["title"], "price": p["price"], "bedrooms": p["bedrooms"],
                          "location": f"{p['locality']}, {p['city']}", "area_sqft": p["area_sqft"],
-                         "property_type": p["property_type"], "facing": p["facing"]})
+                         "property_type": p["property_type"], "facing": p["facing"], **customer_facts(p)})
         order = {"price_asc": ("price", False), "price_desc": ("price", True), "area_desc": ("area_sqft", True)}
         if f["sort"] in order:
             key, reverse = order[f["sort"]]
@@ -100,7 +130,7 @@ class FakeCursor:
                         rows.append({"id": wanted, "title": p["title"], "price": p["price"], "bedrooms": p["bedrooms"],
                                      "bathrooms": None, "area_sqft": p["area_sqft"], "facing": p["facing"],
                                      "location": f"{p['locality']}, {p['city']}",
-                                     "car_parking_spaces": p["car_parking_spaces"]})
+                                     "car_parking_spaces": p["car_parking_spaces"], **customer_facts(p)})
             self.result = rows
 
     def fetchone(self):

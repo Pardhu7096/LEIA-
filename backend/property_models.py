@@ -19,6 +19,21 @@ FacingDirection = Literal[
 # GEO-M1 coordinate provenance. "gps": one on-demand foreground fix from the Agent CRM;
 # "manual": typed or edited by the agent.
 LocationSource = Literal["gps", "manual"]
+
+# Migration 014: builder and project facts. "unknown" means not recorded (never a match in search);
+# "no" is an explicit, recorded no.
+ConstructionStatus = Literal["unknown", "under_construction", "ready_to_move", "not_applicable"]
+Security = Literal["unknown", "none", "guard", "cctv", "guard_and_cctv", "not_applicable"]
+Amenity = Literal["gym", "pool", "clubhouse", "garden", "play_area", "community_hall"]
+ReraSource = Literal["unknown", "owner_reported", "document_checked"]
+RERA_PATTERN = r"^[A-Za-z0-9/_.-]{5,50}$"
+# Fields added by migration 014. A save that sends none of them (an Agent CRM APK built before 014)
+# keeps the stored values instead of resetting them.
+PROJECT_FACT_FIELDS = (
+    "builder_name", "project_name", "rera_number", "rera_source", "rera_checked_on",
+    "construction_status", "possession_date", "floor_number", "total_floors", "lift",
+    "gated_community", "security", "amenities", "project_notes", "project_source", "project_checked_on",
+)
 MAX_GPS_ACCURACY_M = 100.0  # the Agent CRM refuses poorer fixes too
 MAX_LOCATION_ACCURACY_M = 5000.0  # storage bound (database CHECK)
 # Device clock handling (GEO-M1.1): a capture time is the phone's own timestamp and is
@@ -103,6 +118,40 @@ class PropertyDraft(BaseModel):
     location_source: LocationSource | None = None
     location_accuracy_m: float | None = Field(default=None, ge=0, le=MAX_LOCATION_ACCURACY_M)
     location_captured_at: datetime | None = None
+
+    # Migration 014. builder_name is resolved to a shared builder record by normalized name.
+    builder_name: str | None = Field(default=None, max_length=200)
+    project_name: str | None = Field(default=None, max_length=200)
+    rera_number: str | None = Field(default=None, pattern=RERA_PATTERN)
+    rera_source: ReraSource = "unknown"
+    rera_checked_on: date | None = None
+    construction_status: ConstructionStatus = "unknown"
+    possession_date: date | None = None
+    floor_number: int | None = Field(default=None, ge=-2, le=200)
+    total_floors: int | None = Field(default=None, ge=1, le=200)
+    lift: Answer = "unknown"
+    gated_community: Answer = "unknown"
+    security: Security = "unknown"
+    amenities: list[Amenity] = Field(default_factory=list, max_length=6)
+    project_notes: str | None = Field(default=None, max_length=2000)
+    project_source: Source = "unknown"
+    project_checked_on: date | None = None
+
+    @model_validator(mode="after")
+    def validate_project_facts(self):
+        # Normalize via __dict__: plain assignment would mark the field as "sent by the client" and
+        # break the old-APK rule (a save that sends no project facts keeps the stored ones).
+        if self.builder_name is not None and not self.builder_name.strip():
+            self.__dict__["builder_name"] = None
+        if self.possession_date is not None and self.construction_status != "under_construction":
+            raise ValueError("Set construction status to under construction to record an expected possession date.")
+        if (self.floor_number is not None and self.total_floors is not None
+                and self.floor_number > self.total_floors):
+            raise ValueError("The property floor can't be above the building's total floors.")
+        if self.rera_number is None and self.rera_source != "unknown":
+            raise ValueError("Enter the RERA registration number before setting its verification status.")
+        self.__dict__["amenities"] = sorted(set(self.amenities))
+        return self
 
     @model_validator(mode="after")
     def validate_coordinates(self):

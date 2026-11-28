@@ -45,6 +45,9 @@ PRIVATE_FIELDS = frozenset({
     "owner_name", "owner_phone", "listing_consent", "agent_notes",
     # GEO-M1 coordinate provenance is internal review data, not marketing content.
     "location_source", "location_accuracy_m", "location_captured_at",
+    # Migration 014: RERA verification bookkeeping and free-text project notes stay internal; the
+    # snapshot carries rera_verified instead, and the number only when verified (below).
+    "rera_source", "rera_checked_on", "project_notes",
 })
 # Field names come only from our model, never from request input.
 SNAPSHOT_FIELDS = tuple(
@@ -84,19 +87,31 @@ def _json_default(value):
     raise TypeError(f"Cannot serialise {type(value).__name__}")
 
 
+def marketing_facts(row) -> dict:
+    """Listing facts for marketing. A RERA number enters only when an admin verified it from documents."""
+    facts = {name: row[name] for name in SNAPSHOT_FIELDS}
+    verified = row["rera_status"] == "document_checked"
+    facts["rera_verified"] = verified
+    if not verified:
+        facts["rera_number"] = None
+    return facts
+
+
 def build_snapshot(cursor, property_id):
     """Verified facts for an approved listing, or None if it is not approved."""
     cursor.execute(
         sql.SQL("""
-            SELECT {}, p.version, p.status, p.reviewed_at, p.created_by,
+            SELECT {}, b.name AS builder_name, p.rera_source AS rera_status,
+                p.version, p.status, p.reviewed_at, p.created_by,
                 u.name AS agent_name,
                 CASE WHEN u.role IN ('agent', 'admin') THEN u.studio_phone END AS agent_phone,
                 u.studio_phone_verified_at AS agent_phone_verified_at
             FROM public.properties AS p
             LEFT JOIN public.users AS u ON u.id = p.created_by
+            LEFT JOIN public.builders AS b ON b.id = p.builder_id
             WHERE p.id = %s;
         """).format(
-            sql.SQL(", ").join(sql.Identifier("p", name) for name in SNAPSHOT_FIELDS)
+            sql.SQL(", ").join(sql.Identifier("p", name) for name in SNAPSHOT_FIELDS if name != "builder_name")
         ),
         (property_id,),
     )
@@ -124,7 +139,7 @@ def build_snapshot(cursor, property_id):
         "property_id": property_id,
         "property_version": row["version"],
         "approved_at": row["reviewed_at"],
-        "property": {name: row[name] for name in SNAPSHOT_FIELDS},
+        "property": marketing_facts(row),
         "agent": agent,
         "media": media,
     }

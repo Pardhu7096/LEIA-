@@ -84,21 +84,43 @@ AMENITY_FILTERS = {  # supported by real columns
     "parking": ("car parking", "parking", "పార్కింగ్"),
     "power_backup": ("power backup", "generator backup", "generator", "inverter backup", "పవర్ బ్యాకప్"),
 }
+# Migration 014: project facts are real filters now (unknown values never match).
+PROJECT_FILTER_TERMS: dict[str, tuple[str, ...]] = {
+    "lift": ("lift facility", "lift available", "with lift", "lift unna", "lift undali", "elevator", "lift",
+             "లిఫ్ట్ ఉన్న", "లిఫ్ట్"),
+    "gated": ("gated community", "gated society", "gated", "గేటెడ్ కమ్యూనిటీ", "గేటెడ్"),
+    "security": ("24x7 security", "24/7 security", "security guard", "security", "cctv", "watchman",
+                 "సెక్యూరిటీ", "వాచ్‌మెన్"),
+    "rera_verified": ("rera approved", "rera registered", "rera verified", "rera certified", "with rera",
+                      "rera", "రెరా"),
+}
+CONSTRUCTION_TERMS = {
+    "ready_to_move": ("ready to move", "ready-to-move", "ready for possession", "immediate possession",
+                      "ready to occupy", "completed project", "రెడీ టు మూవ్", "గృహప్రవేశానికి సిద్ధం",
+                      "ready ga unna"),
+    "under_construction": ("under construction", "under-construction", "new launch", "nirmanamlo",
+                           "నిర్మాణంలో"),
+}
+AMENITY_TERMS = {
+    "gym": ("gymnasium", "gym", "జిమ్"),
+    "pool": ("swimming pool", "pool", "స్విమ్మింగ్ పూల్"),
+    "clubhouse": ("clubhouse", "club house", "క్లబ్ హౌస్"),
+    "garden": ("garden", "landscaped garden", "గార్డెన్", "తోట"),
+    "play_area": ("children's play area", "kids play area", "play area", "children's park", "ఆట స్థలం"),
+    "community_hall": ("community hall", "function hall", "కమ్యూనిటీ హాల్"),
+}
+BUILDER_SUFFIX = r"(?:builders?|constructions?|developers?|infra(?:structure)?|homes|projects|estates|group)"
+MONTHS = {m: i for i, m in enumerate(("january", "february", "march", "april", "may", "june", "july", "august",
+                                       "september", "october", "november", "december"), 1)}
+MONTHS.update({m[:3]: i for m, i in list(MONTHS.items())})
+LISTING_DETAIL_TERMS = ("builder name", "builder", "developer", "బిల్డర్", "rera number", "possession date")
+LISTING_DETAIL_NOTE = ("Builder and possession details appear on each listing only when they've been recorded, and "
+                       "RERA numbers only when LEIA has verified them. LEIA never guesses these. "
+                       "Open a listing and ask, for example “who is the builder?”.")
 UNSUPPORTED_TERMS: dict[str, tuple[str, ...]] = {
-    "lift": ("lift", "elevator", "లిఫ్ట్"),
-    "gym": ("gym", "gymnasium", "జిమ్"),
-    "swimming pool": ("swimming pool", "pool"),
-    "security": ("24x7 security", "security", "cctv", "watchman"),
-    "gated community": ("gated community", "gated"),
-    "clubhouse": ("clubhouse", "club house"),
-    "garden": ("garden", "park facing", "children's park"),
-    "possession status": ("ready to move", "ready-to-move", "ready for possession", "immediate possession",
-                          "under construction", "under-construction", "new launch", "possession",
-                          "రెడీ టు మూవ్", "గృహప్రవేశానికి సిద్ధం"),
-    "RERA registration": ("rera approved", "rera registered", "rera registration", "rera number", "rera"),
     "legal approvals": ("vmrda approved layout", "vmrda approved", "vuda approved", "gvmc approved", "dtcp approved", "approved layout",
                         "legal approval", "approvals", "clear title", "title clear"),
-    "builder": ("builder", "developer", "బిల్డర్"),
+    # A bare "builder" question (no name) is answered per listing; see LISTING_DETAIL_TERMS.
     "loan eligibility": ("loan", "emi", "home loan", "లోన్"),
     "nearby schools/hospitals": ("near school", "near schools", "schools nearby", "near hospital",
                                  "hospitals nearby", "near metro", "near bus stop", "school daggara",
@@ -137,6 +159,7 @@ city locality location area place visakhapatnam
 lo loni ki ku ni kavali kaavali kavalandi chupinchu chupinchandi choopinchu choopinchandi unna unnaayi unnavi
 illu illulu intlu kosam naaku naku dhara dharalo varaku madhya mariyu oka emaina andi undi untey unte gaani
 corner latest new these those built who what am eligible eligibility
+project projects venture ventures apartment apartments facility facilities amenity amenities
 """.split())
 TELUGU_STOPWORDS = {
     "లో", "లోని", "కావాలి", "కావాలండి", "చూపించు", "చూపించండి", "ఉన్న", "ఉన్నవి", "ఇళ్ళు", "ఇల్లు", "ఇల్లులు",
@@ -278,6 +301,40 @@ def parse(message: str) -> ParseResult:
                 updates["max_price"] = None
             else:
                 updates[key] = None
+
+    # Migration 014 project facts (deterministic only; Groq never sets these).
+    # Order matters: possession dates and construction status first, so "under construction" is
+    # never read as a builder called "Under".
+    possession = _take_possession_by(t)
+    if possession:
+        updates["possession_by"] = possession
+    for status, terms in CONSTRUCTION_TERMS.items():
+        for term in sorted(terms, key=len, reverse=True):
+            if t.take(_term_pattern(term)):
+                updates["construction_status"] = status
+    builder = _take_builder(t)
+    if builder:
+        updates["builder"] = builder
+    # Questions about one listing's builder / RERA number / possession date (no name or value given).
+    detail_question = any(t.take(_term_pattern(term))
+                          for term in sorted(LISTING_DETAIL_TERMS, key=len, reverse=True))
+    for key, terms in PROJECT_FILTER_TERMS.items():
+        for term in sorted(terms, key=len, reverse=True):
+            if t.take(_term_pattern(term)):
+                updates[key] = True
+    amenities = []
+    for key, terms in AMENITY_TERMS.items():
+        for term in sorted(terms, key=len, reverse=True):
+            if t.take(_term_pattern(term)):
+                amenities.append(key)
+    if amenities:
+        updates["amenities"] = sorted(set(amenities))
+    if detail_question:
+        result.notes.append(LISTING_DETAIL_NOTE)
+        if not updates:
+            result.kind = "clarify"
+            result.question = LISTING_DETAIL_NOTE
+            return result
 
     # Unsupported requirements are reported, never silently ignored.
     for label, terms in UNSUPPORTED_TERMS.items():
@@ -472,6 +529,42 @@ def parse(message: str) -> ParseResult:
     return result
 
 
+def _take_builder(t: "_Text") -> str | None:
+    """Builder names from "by <name>", "<name> constructions/builders/…", or "builder <name>"."""
+    patterns = (
+        rf"\b(?:by|from)\s+(?P<name>[a-z][a-z0-9&.'-]*(?:\s+[a-z][a-z0-9&.'-]*){{0,2}}?)\s+{BUILDER_SUFFIX}\b",
+        rf"\b(?:builder|developer)\s+(?:is\s+|named\s+|called\s+)?(?P<name>[a-z][a-z0-9&.'-]*(?:\s+[a-z][a-z0-9&.'-]*)?)\b",
+        rf"(?P<name>\b[a-z][a-z0-9&.'-]*(?:\s+[a-z][a-z0-9&.'-]*)?)\s+{BUILDER_SUFFIX}\b",
+    )
+    blocked = STOPWORDS | {"flats", "flat", "houses", "house", "homes", "apartments", "apartment", "plots",
+                           "plot", "villas", "villa", "property", "properties", "bhk", "new", "good", "best", "under",
+                           "top", "reputed", "any", "all", "lo", "ki", "nunchi"}
+    for pattern in patterns:
+        match = t.find(pattern)
+        if not match:
+            continue
+        words = [w for w in match.group("name").split() if w not in blocked and not w.isdigit()]
+        if not words or any(w in {"by", "from"} for w in words):
+            continue
+        t.take(re.escape(match.group(0)))
+        return " ".join(w.capitalize() for w in words)
+    return None
+
+
+def _take_possession_by(t: "_Text") -> str | None:
+    """'possession by March 2027', 'ready by 2027', '2027 lopu possession' -> last day of that period."""
+    month_names = "|".join(sorted(MONTHS, key=len, reverse=True))
+    m = t.find(rf"\b(?:possession|handover|ready)\s+(?:by|before|in|within|lopu)\s+(?:(?P<month>{month_names})\s+)?(?P<year>20\d\d)\b")
+    if not m:
+        m = t.find(rf"(?:(?P<month>{month_names})\s+)?\b(?P<year>20\d\d)\s+(?:lopu|లోపు|naatiki|నాటికి)\s*(?:possession|పొసెషన్)")
+    if not m:
+        return None
+    year, month = int(m.group("year")), MONTHS.get((m.group("month") or "").lower(), 12)
+    import calendar
+    t.take(re.escape(m.group(0)))
+    return f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+
+
 def _ambiguous_money(result: ParseResult) -> ParseResult:
     result.kind = "clarify"
     result.question = "Is that amount in lakhs or crores? For example, “under 65 lakh” or “under 1.2 crore”."
@@ -527,4 +620,20 @@ def describe(filters: dict) -> str:
         parts.append("with parking")
     if filters.get("power_backup"):
         parts.append("with power backup")
+    if filters.get("builder"):
+        parts.append(f"by {filters['builder']}")
+    if filters.get("construction_status") == "ready_to_move":
+        parts.append("ready to move")
+    elif filters.get("construction_status") == "under_construction":
+        parts.append("under construction")
+    if filters.get("possession_by"):
+        parts.append(f"possession by {filters['possession_by']}")
+    for key, label in (("lift", "with a lift"), ("gated", "in a gated community"), ("security", "with security"),
+                       ("rera_verified", "with verified RERA")):
+        if filters.get(key):
+            parts.append(label)
+    if filters.get("amenities"):
+        names = {"gym": "gym", "pool": "swimming pool", "clubhouse": "clubhouse", "garden": "garden",
+                 "play_area": "play area", "community_hall": "community hall"}
+        parts.append("with " + ", ".join(names[a] for a in filters["amenities"]))
     return ", ".join(parts) if parts else "all approved listings"

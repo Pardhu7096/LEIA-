@@ -70,3 +70,11 @@ jobs:
       - run: python -m pytest backend/tests/test_db_pool.py -q
         env:
           TEST_DATABASE_URL: postgresql://postgres:crm-test-only@localhost:5432/leia_pool_test
+      # Migration 014 (builders and project facts): existing-record safety + rollback, then the feature.
+      - run: psql postgresql://postgres:crm-test-only@localhost:5432/crm_test -c 'CREATE DATABASE leia_migration_test;' -c 'CREATE DATABASE leia_builder_test;'
+      - run: python -m pytest backend/tests/test_migration_014.py -q
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:crm-test-only@localhost:5432/leia_migration_test
+      - run: python -m pytest backend/tests/test_builder_fields.py -q
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:crm-test-only@localhost:5432/leia_builder_test

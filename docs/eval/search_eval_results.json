@@ -24,7 +24,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -60,7 +68,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B",
@@ -96,7 +112,15 @@
    "max_area_sqft": 1500,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -134,7 +158,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B",
@@ -170,7 +202,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "D",
@@ -206,7 +246,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "I"
@@ -240,7 +288,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "F",
@@ -275,7 +331,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -315,7 +379,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "C",
@@ -353,7 +425,15 @@
    "max_area_sqft": 1100,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B",
@@ -390,7 +470,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -425,7 +513,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": "price_asc"
+   "sort": "price_asc",
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "E",
@@ -470,7 +566,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": "price_desc"
+   "sort": "price_desc",
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "D",
@@ -505,7 +609,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "Is that amount in lakhs or crores? For example, “under 65 lakh” or “under 1.2 crore”.",
@@ -534,7 +646,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "Your minimum budget is higher than your maximum. What price range should I use?",
@@ -563,7 +683,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "LEIA searches one bedroom count at a time. Which should I use, for example 2 BHK or 3 BHK?",
@@ -596,7 +724,15 @@
    "max_area_sqft": 1430,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -631,7 +767,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "E"
@@ -662,7 +806,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "Could you clarify your location, budget, bedrooms, or preferred property type?",
@@ -694,7 +846,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -739,7 +899,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A"
@@ -772,7 +940,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "G"
@@ -806,7 +982,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "No available listings match those requirements. I’ve kept your search filters. Would you like to change the budget, location, or facing?\n\nListings exist if you search all localities (8 listings); or include all property types (1 listing).",
@@ -837,7 +1021,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "C"
@@ -871,7 +1063,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "E"
@@ -905,7 +1105,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "F"
@@ -939,7 +1147,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "I"
@@ -973,7 +1189,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "H"
@@ -1007,7 +1231,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B",
@@ -1041,7 +1273,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "D"
@@ -1074,7 +1314,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "H"
@@ -1107,7 +1355,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -1148,7 +1404,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "LEIA searches one locality at a time. Should I search Vepagunta or Pendurthi?",
@@ -1180,7 +1444,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "No available listings match those requirements. I’ve kept your search filters. Would you like to change the budget, location, or facing?",
@@ -1209,7 +1481,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "LEIA can't exclude areas yet. Which single locality should I search?",
@@ -1240,7 +1520,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B",
@@ -1275,7 +1563,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "C",
@@ -1310,7 +1606,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "N"
@@ -1343,7 +1647,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "I"
@@ -1376,7 +1688,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "M"
@@ -1409,7 +1729,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "D"
@@ -1426,9 +1754,10 @@
   "expected_intent": "search",
   "expected_filters": {
    "property_type": "flat",
-   "parking": true
+   "parking": true,
+   "lift": true
   },
-  "expected_behavior": "parking filtered from data; lift reported as unverified, not dropped silently",
+  "expected_behavior": "migration 014: lift is a real filter now; unknown lift never matches",
   "groq_expected": false,
   "actual_intent": "search",
   "groq_called": false,
@@ -1443,17 +1772,23 @@
    "max_area_sqft": null,
    "parking": true,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": true,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
    "B",
    "D",
-   "G",
-   "H",
-   "M"
+   "H"
   ],
-  "actual_reply": "I found 6 approved listings for flats, with parking.\n\nLEIA doesn’t have verified information on lift for its listings yet, so I haven’t filtered by it. Please confirm lift with the LEIA agent before deciding.",
+  "actual_reply": "I found 4 approved listings for flats, with parking, with a lift.",
   "mocked_ai": false,
   "pass": true,
   "failure_reason": ""
@@ -1482,7 +1817,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": true,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -1500,9 +1843,13 @@
   "question": "flats with gym and swimming pool",
   "expected_intent": "search",
   "expected_filters": {
-   "property_type": "flat"
+   "property_type": "flat",
+   "amenities": [
+    "gym",
+    "pool"
+   ]
   },
-  "expected_behavior": "amenities without data are flagged as unverified",
+  "expected_behavior": "migration 014: recorded amenities filter; the draft J with the same amenities never appears",
   "groq_expected": false,
   "actual_intent": "search",
   "groq_called": false,
@@ -1517,19 +1864,23 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": [
+    "gym",
+    "pool"
+   ]
   },
   "actual_ids": [
-   "A",
-   "B",
-   "D",
-   "F",
-   "G",
-   "H",
-   "M",
-   "N"
+   "D"
   ],
-  "actual_reply": "I found 8 approved listings for flats.\n\nLEIA doesn’t have verified information on gym, swimming pool for its listings yet, so I haven’t filtered by it. Please confirm gym, swimming pool with the LEIA agent before deciding.",
+  "actual_reply": "I found 1 approved listing for flats, with gym, swimming pool.",
   "mocked_ai": false,
   "pass": true,
   "failure_reason": ""
@@ -1555,7 +1906,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "LEIA searches one facing direction at a time. Which direction should I use?",
@@ -1589,7 +1948,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A"
@@ -1623,7 +1990,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "F"
@@ -1657,7 +2032,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B"
@@ -1690,7 +2073,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "C",
@@ -1725,7 +2116,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "C"
@@ -1759,7 +2158,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "E"
@@ -1793,7 +2200,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B"
@@ -1826,7 +2241,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "D"
@@ -1860,7 +2283,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -1895,7 +2326,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "G"
@@ -1929,7 +2368,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "H"
@@ -1945,9 +2392,10 @@
   "question": "లిఫ్ట్ ఉన్న ఫ్లాట్",
   "expected_intent": "search",
   "expected_filters": {
-   "property_type": "flat"
+   "property_type": "flat",
+   "lift": true
   },
-  "expected_behavior": "lift unverified in Telugu too",
+  "expected_behavior": "migration 014: lift filter in Telugu",
   "groq_expected": false,
   "actual_intent": "search",
   "groq_called": false,
@@ -1962,19 +2410,23 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": true,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
    "B",
    "D",
-   "F",
-   "G",
-   "H",
-   "M",
-   "N"
+   "H"
   ],
-  "actual_reply": "I found 8 approved listings for flats.\n\nLEIA doesn’t have verified information on lift for its listings yet, so I haven’t filtered by it. Please confirm lift with the LEIA agent before deciding.",
+  "actual_reply": "I found 4 approved listings for flats, with a lift.",
   "mocked_ai": false,
   "pass": true,
   "failure_reason": ""
@@ -2000,7 +2452,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "Hi! I’m LEIA. Tell me your location, budget, and preferred bedrooms, or update your current search. ",
@@ -2029,7 +2489,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "LEIA currently lists properties for sale only. Rental listings aren't available yet. Would you like to search homes for sale instead?",
@@ -2058,7 +2526,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "LEIA can't filter by ventilation yet. Which locality and budget should I use?",
@@ -2092,7 +2568,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B"
@@ -2126,7 +2610,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "H"
@@ -2161,7 +2653,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "No available listings match those requirements. I’ve kept your search filters. Would you like to change the budget, location, or facing?\n\nListings exist if you search all localities (1 listing); or include all property types (1 listing).",
@@ -2194,7 +2694,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A"
@@ -2228,7 +2736,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "E"
@@ -2262,7 +2778,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "N"
@@ -2296,7 +2820,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "G"
@@ -2330,7 +2862,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "I"
@@ -2364,7 +2904,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A"
@@ -2395,7 +2943,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "Which locality and budget should I use?\n\nLEIA doesn’t have verified information on nearby schools/hospitals for its listings yet, so I haven’t filtered by it. Please confirm nearby schools/hospitals with the LEIA agent before deciding.",
@@ -2427,7 +2983,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B"
@@ -2462,7 +3026,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
@@ -2501,7 +3073,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "D"
@@ -2535,7 +3115,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "B",
@@ -2568,10 +3156,18 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
-  "actual_reply": "Comparison from LEIA’s approved listing records:\n\nListing 1: Sai Residency\nPrice: ₹62,00,000\nBedrooms: 3 · Bathrooms: Not listed\nArea: 1,350 sq ft\nFacing: North\nLocation: Vepagunta, Visakhapatnam\nCar parking spaces: 1\n\nListing 2: Chinthala Enclave\nPrice: ₹58,00,000\nBedrooms: 3 · Bathrooms: Not listed\nArea: 1,280 sq ft\nFacing: South\nLocation: Chinthala Agraharam, Visakhapatnam\nCar parking spaces: 1\n\nDetails marked “Not listed” haven’t been verified. Please confirm them with the agent.",
+  "actual_reply": "Comparison from LEIA’s approved listing records:\n\nListing 1: Sai Residency\nPrice: ₹62,00,000\nBedrooms: 3 · Bathrooms: Not listed\nArea: 1,350 sq ft\nFacing: North\nLocation: Vepagunta, Visakhapatnam\nCar parking spaces: 1\nBuilder: Sai Constructions\nConstruction: Ready to move (verified from documents)\nLift: Yes (verified from documents)\nGated community: Yes (verified from documents)\nAmenities: Gym, Children's play area (verified from documents)\nRERA: Verified from documents\n\nListing 2: Chinthala Enclave\nPrice: ₹58,00,000\nBedrooms: 3 · Bathrooms: Not listed\nArea: 1,280 sq ft\nFacing: South\nLocation: Chinthala Agraharam, Visakhapatnam\nCar parking spaces: 1\nBuilder: Sai Constructions\nConstruction: Under construction, expected possession 2026-12-31 (an estimate, not a guarantee) (owner reported)\nLift: No (owner reported)\nGated community: Yes (owner reported)\n\nDetails marked “Not listed” haven’t been verified. Please confirm them with the agent.",
   "mocked_ai": false,
   "pass": true,
   "failure_reason": ""
@@ -2597,10 +3193,18 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
-  "actual_reply": "Comparison from LEIA’s approved listing records:\n\nListing 1: Harbour View\nPrice: ₹1,15,00,000\nBedrooms: 3 · Bathrooms: Not listed\nArea: 1,650 sq ft\nFacing: West\nLocation: MVP Colony, Visakhapatnam\nCar parking spaces: 1\n\nListing 3: Green Park Apartments\nPrice: ₹48,00,000\nBedrooms: 2 · Bathrooms: Not listed\nArea: 1,100 sq ft\nFacing: East\nLocation: Madhurawada, Visakhapatnam\nCar parking spaces: 1\n\nDetails marked “Not listed” haven’t been verified. Please confirm them with the agent.",
+  "actual_reply": "Comparison from LEIA’s approved listing records:\n\nListing 1: Harbour View\nPrice: ₹1,15,00,000\nBedrooms: 3 · Bathrooms: Not listed\nArea: 1,650 sq ft\nFacing: West\nLocation: MVP Colony, Visakhapatnam\nCar parking spaces: 1\nBuilder: Harbour Developers\nConstruction: Ready to move (observed by the agent)\nLift: Yes (observed by the agent)\nAmenities: Clubhouse, Gym, Swimming pool (observed by the agent)\nRERA: Verified from documents\n\nListing 3: Green Park Apartments\nPrice: ₹48,00,000\nBedrooms: 2 · Bathrooms: Not listed\nArea: 1,100 sq ft\nFacing: East\nLocation: Madhurawada, Visakhapatnam\nCar parking spaces: 1\nBuilder: Green Park Builders\nConstruction: Under construction, expected possession 2027-03-31 (an estimate, not a guarantee) (owner reported)\nLift: Yes (owner reported)\nGated community: No (owner reported)\nAmenities: Garden (owner reported)\n\nDetails marked “Not listed” haven’t been verified. Please confirm them with the agent.",
   "mocked_ai": false,
   "pass": true,
   "failure_reason": ""
@@ -2626,7 +3230,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "Search for properties in this chat first, then ask me to compare listings, e.g. “compare listing 1 and 2”.",
@@ -2655,7 +3267,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "Choose two to four listing numbers between 1 and 2, e.g. “compare listing 1 and 2”.",
@@ -2687,7 +3307,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "What maximum budget should I use?",
@@ -2719,7 +3347,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "Let’s start a fresh search. What location and budget do you have in mind?",
@@ -2732,8 +3368,10 @@
   "category": "missing_info_no_result",
   "question": "Ready-to-move properties",
   "expected_intent": "search",
-  "expected_filters": {},
-  "expected_behavior": "possession not verified, stated explicitly",
+  "expected_filters": {
+   "construction_status": "ready_to_move"
+  },
+  "expected_behavior": "migration 014: ready-to-move filters recorded construction status only",
   "groq_expected": false,
   "actual_intent": "search",
   "groq_called": false,
@@ -2748,22 +3386,22 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": "ready_to_move",
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [
    "A",
-   "B",
-   "C",
    "D",
-   "E",
-   "F",
-   "G",
-   "H",
-   "I",
-   "M",
-   "N"
+   "M"
   ],
-  "actual_reply": "I found 11 approved listings for all approved listings.\n\nLEIA doesn’t have verified information on possession status for its listings yet, so I haven’t filtered by it. Please confirm possession status with the LEIA agent before deciding.",
+  "actual_reply": "I found 3 approved listings for ready to move.",
   "mocked_ai": false,
   "pass": true,
   "failure_reason": ""
@@ -2774,7 +3412,7 @@
   "question": "Is it RERA approved?",
   "expected_intent": "search",
   "expected_filters": {},
-  "expected_behavior": "RERA never asserted",
+  "expected_behavior": "RERA never asserted for an unspecified listing (migration 014 keeps this)",
   "groq_expected": false,
   "actual_intent": "search",
   "groq_called": false,
@@ -2789,10 +3427,18 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
-  "actual_reply": "LEIA doesn’t have verified information on RERA registration for its listings yet, so I haven’t filtered by it. Please confirm RERA registration with the LEIA agent before deciding.",
+  "actual_reply": "LEIA shows a RERA number only after verifying it from the registration documents. Open a listing and ask “RERA?” to see its status, or search for “RERA verified flats”.",
   "mocked_ai": false,
   "pass": true,
   "failure_reason": ""
@@ -2822,7 +3468,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "No available listings match those requirements. I’ve kept your search filters. Would you like to change the budget, location, or facing?",
@@ -2851,7 +3505,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "No available listings match those requirements. I’ve kept your search filters. Would you like to change the budget, location, or facing?\n\nListings exist if you search all localities (2 listings).",
@@ -2863,36 +3525,35 @@
   "id": "N05",
   "category": "missing_info_no_result",
   "question": "which builder built these flats?",
-  "expected_intent": "search",
+  "expected_intent": "clarify",
   "expected_filters": {},
-  "expected_behavior": "builder names never invented",
+  "expected_behavior": "migration 014: a builder question without a listing is explained, never guessed (was: search)",
   "groq_expected": false,
-  "actual_intent": "search",
+  "actual_intent": "clarify",
   "groq_called": false,
   "actual_filters": {
    "bedrooms": null,
    "min_price": null,
    "max_price": null,
    "location": null,
-   "property_type": "flat",
+   "property_type": null,
    "facing": null,
    "min_area_sqft": null,
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
-  "actual_ids": [
-   "A",
-   "B",
-   "D",
-   "F",
-   "G",
-   "H",
-   "M",
-   "N"
-  ],
-  "actual_reply": "I found 8 approved listings for flats.\n\nLEIA doesn’t have verified information on builder for its listings yet, so I haven’t filtered by it. Please confirm builder with the LEIA agent before deciding.",
+  "actual_ids": [],
+  "actual_reply": "Builder and possession details appear on each listing only when they've been recorded, and RERA numbers only when LEIA has verified them. LEIA never guesses these. Open a listing and ask, for example “who is the builder?”.",
   "mocked_ai": false,
   "pass": true,
   "failure_reason": ""
@@ -2918,7 +3579,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "LEIA doesn’t have verified information on loan eligibility for its listings yet, so I haven’t filtered by it. Please confirm loan eligibility with the LEIA agent before deciding.",
@@ -2947,7 +3616,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "LEIA currently lists properties for sale only. Rental listings aren't available yet. Would you like to search homes for sale instead?",
@@ -2976,7 +3653,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "LEIA doesn’t have verified information on legal approvals for its listings yet, so I haven’t filtered by it. Please confirm legal approvals with the LEIA agent before deciding.",
@@ -3005,7 +3690,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "No available listings match those requirements. I’ve kept your search filters. Would you like to change the budget, location, or facing?",
@@ -3034,7 +3727,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "Could you clarify your location, budget, bedrooms, or preferred property type?",
@@ -3063,7 +3764,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I can only help with searching LEIA's approved property listings. Try something like “3 BHK under 65 lakh in Vepagunta”.",
@@ -3092,7 +3801,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I can only help with searching LEIA's approved property listings. Try something like “3 BHK under 65 lakh in Vepagunta”.",
@@ -3121,7 +3838,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I can only help with searching LEIA's approved property listings. Try something like “3 BHK under 65 lakh in Vepagunta”.",
@@ -3150,7 +3875,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I can only help with searching LEIA's approved property listings. Try something like “3 BHK under 65 lakh in Vepagunta”.",
@@ -3179,7 +3912,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I can only help with searching LEIA's approved property listings. Try something like “3 BHK under 65 lakh in Vepagunta”.",
@@ -3208,7 +3949,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I’m LEIA, a property search assistant for Visakhapatnam. I can’t help with that, but I can find approved listings by budget, BHK, locality, facing, or size.",
@@ -3237,7 +3986,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I can only help with searching LEIA's approved property listings. Try something like “3 BHK under 65 lakh in Vepagunta”.",
@@ -3266,7 +4023,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I’m LEIA, a property search assistant for Visakhapatnam. I can’t help with that, but I can find approved listings by budget, BHK, locality, facing, or size.",
@@ -3295,7 +4060,15 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I can only help with searching LEIA's approved property listings. Try something like “3 BHK under 65 lakh in Vepagunta”.",
@@ -3324,10 +4097,1058 @@
    "max_area_sqft": null,
    "parking": null,
    "power_backup": null,
-   "sort": null
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
   },
   "actual_ids": [],
   "actual_reply": "I can only help with searching LEIA's approved property listings. Try something like “3 BHK under 65 lakh in Vepagunta”.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P01",
+  "category": "project_facts",
+  "question": "3 BHK flats with lift",
+  "expected_intent": "search",
+  "expected_filters": {
+   "bedrooms": 3,
+   "property_type": "flat",
+   "lift": true
+  },
+  "expected_behavior": "migration 014 project-fact filter; unknown never matches",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": 3,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": true,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A",
+   "D",
+   "H"
+  ],
+  "actual_reply": "I found 3 approved listings for 3 BHK, flats, with a lift.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P02",
+  "category": "project_facts",
+  "question": "ready to move flats in Vepagunta",
+  "expected_intent": "search",
+  "expected_filters": {
+   "construction_status": "ready_to_move",
+   "location": "Vepagunta"
+  },
+  "expected_behavior": "migration 014 project-fact filter; unknown never matches",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": "Vepagunta",
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": "ready_to_move",
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A"
+  ],
+  "actual_reply": "I found 1 approved listing for flats, in Vepagunta, ready to move.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P03",
+  "category": "project_facts",
+  "question": "gated community flats",
+  "expected_intent": "search",
+  "expected_filters": {
+   "gated": true,
+   "property_type": "flat"
+  },
+  "expected_behavior": "explicit 'no' (B) and unknown never match",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": true,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A",
+   "G"
+  ],
+  "actual_reply": "I found 2 approved listings for flats, in a gated community.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P04",
+  "category": "project_facts",
+  "question": "apartments with clubhouse",
+  "expected_intent": "search",
+  "expected_filters": {
+   "amenities": [
+    "clubhouse"
+   ]
+  },
+  "expected_behavior": "migration 014 project-fact filter; unknown never matches",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": [
+    "clubhouse"
+   ]
+  },
+  "actual_ids": [
+   "D"
+  ],
+  "actual_reply": "I found 1 approved listing for flats, with clubhouse.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P05",
+  "category": "project_facts",
+  "question": "flats by Sai Constructions",
+  "expected_intent": "search",
+  "expected_filters": {
+   "builder": "Sai",
+   "property_type": "flat"
+  },
+  "expected_behavior": "builder by normalized name; draft J excluded",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": "Sai",
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A",
+   "G"
+  ],
+  "actual_reply": "I found 2 approved listings for flats, by Sai.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P06",
+  "category": "project_facts",
+  "question": "Raju constructions flats in Madhurawada",
+  "expected_intent": "search",
+  "expected_filters": {
+   "builder": "Raju",
+   "location": "Madhurawada"
+  },
+  "expected_behavior": "migration 014 project-fact filter; unknown never matches",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": "Madhurawada",
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": "Raju",
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "M"
+  ],
+  "actual_reply": "I found 1 approved listing for flats, in Madhurawada, by Raju.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P07",
+  "category": "project_facts",
+  "question": "possession by December 2026",
+  "expected_intent": "search",
+  "expected_filters": {
+   "possession_by": "2026-12-31"
+  },
+  "expected_behavior": "ready-to-move or expected possession on/before the date",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": null,
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": "2026-12-31",
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A",
+   "D",
+   "G",
+   "M"
+  ],
+  "actual_reply": "I found 4 approved listings for possession by 2026-12-31.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P08",
+  "category": "project_facts",
+  "question": "possession by March 2027",
+  "expected_intent": "search",
+  "expected_filters": {
+   "possession_by": "2027-03-31"
+  },
+  "expected_behavior": "migration 014 project-fact filter; unknown never matches",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": null,
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": "2027-03-31",
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A",
+   "B",
+   "D",
+   "G",
+   "M"
+  ],
+  "actual_reply": "I found 5 approved listings for possession by 2027-03-31.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P09",
+  "category": "project_facts",
+  "question": "RERA approved flats",
+  "expected_intent": "search",
+  "expected_filters": {
+   "rera_verified": true,
+   "property_type": "flat"
+  },
+  "expected_behavior": "only document-checked RERA; owner-reported (B) excluded",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": true,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A",
+   "D"
+  ],
+  "actual_reply": "I found 2 approved listings for flats, with verified RERA.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P10",
+  "category": "project_facts",
+  "question": "under construction flats",
+  "expected_intent": "search",
+  "expected_filters": {
+   "construction_status": "under_construction",
+   "property_type": "flat"
+  },
+  "expected_behavior": "migration 014 project-fact filter; unknown never matches",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": "under_construction",
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "B",
+   "G",
+   "H"
+  ],
+  "actual_reply": "I found 3 approved listings for flats, under construction.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P11",
+  "category": "project_facts",
+  "question": "flats with 24x7 security",
+  "expected_intent": "search",
+  "expected_filters": {
+   "security": true,
+   "property_type": "flat"
+  },
+  "expected_behavior": "migration 014 project-fact filter; unknown never matches",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": true,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A",
+   "B",
+   "D"
+  ],
+  "actual_reply": "I found 3 approved listings for flats, with security.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P12",
+  "category": "project_facts",
+  "question": "లిఫ్ట్ ఉన్న 3 బీహెచ్కే ఫ్లాట్లు",
+  "expected_intent": "search",
+  "expected_filters": {
+   "lift": true,
+   "bedrooms": 3,
+   "property_type": "flat"
+  },
+  "expected_behavior": "Telugu lift filter",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": 3,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": true,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A",
+   "D",
+   "H"
+  ],
+  "actual_reply": "I found 3 approved listings for 3 BHK, flats, with a lift.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P13",
+  "category": "project_facts",
+  "question": "గేటెడ్ కమ్యూనిటీ లో జిమ్ ఉన్న ఫ్లాట్లు",
+  "expected_intent": "search",
+  "expected_filters": {
+   "gated": true,
+   "amenities": [
+    "gym"
+   ],
+   "property_type": "flat"
+  },
+  "expected_behavior": "Telugu gated + gym",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": true,
+   "security": null,
+   "rera_verified": null,
+   "amenities": [
+    "gym"
+   ]
+  },
+  "actual_ids": [
+   "A"
+  ],
+  "actual_reply": "I found 1 approved listing for flats, in a gated community, with gym.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P14",
+  "category": "project_facts",
+  "question": "రెడీ టు మూవ్ ఫ్లాట్లు వేపగుంటలో",
+  "expected_intent": "search",
+  "expected_filters": {
+   "construction_status": "ready_to_move",
+   "location": "Vepagunta"
+  },
+  "expected_behavior": "Telugu ready to move",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": "Vepagunta",
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": "ready_to_move",
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A"
+  ],
+  "actual_reply": "I found 1 approved listing for flats, in Vepagunta, ready to move.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P15",
+  "category": "project_facts",
+  "question": "Madhurawada lo lift unna flats",
+  "expected_intent": "search",
+  "expected_filters": {
+   "lift": true,
+   "location": "Madhurawada"
+  },
+  "expected_behavior": "Telugu-English lift; M's unknown lift excluded",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": "Madhurawada",
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": true,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "B"
+  ],
+  "actual_reply": "I found 1 approved listing for flats, in Madhurawada, with a lift.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P16",
+  "category": "project_facts",
+  "question": "gated community lo gym unna 3 bhk",
+  "expected_intent": "search",
+  "expected_filters": {
+   "gated": true,
+   "amenities": [
+    "gym"
+   ],
+   "bedrooms": 3
+  },
+  "expected_behavior": "Telugu-English gated + gym",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": 3,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": null,
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": true,
+   "security": null,
+   "rera_verified": null,
+   "amenities": [
+    "gym"
+   ]
+  },
+  "actual_ids": [
+   "A"
+  ],
+  "actual_reply": "I found 1 approved listing for 3 BHK, in a gated community, with gym.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P17",
+  "category": "project_facts",
+  "question": "2027 lopu possession flats",
+  "expected_intent": "search",
+  "expected_filters": {
+   "possession_by": "2027-12-31",
+   "property_type": "flat"
+  },
+  "expected_behavior": "Telugu-English possession year; H (2028) excluded",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": "2027-12-31",
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A",
+   "B",
+   "D",
+   "G",
+   "M"
+  ],
+  "actual_reply": "I found 5 approved listings for flats, possession by 2027-12-31.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P18",
+  "category": "project_facts",
+  "question": "flats with lift in Gajuwaka",
+  "expected_intent": "search",
+  "expected_filters": {
+   "lift": true,
+   "location": "Gajuwaka"
+  },
+  "expected_behavior": "unknown lift is not a match; suggestion offered, filters kept",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": "Gajuwaka",
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": true,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [],
+  "actual_reply": "No available listings match those requirements. I’ve kept your search filters. Would you like to change the budget, location, or facing?\n\nListings exist if you search all localities (4 listings); or drop the lift requirement (1 listing).",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P19",
+  "category": "project_facts",
+  "question": "who is the builder?",
+  "expected_intent": "clarify",
+  "expected_filters": {},
+  "expected_behavior": "builder never invented without a listing",
+  "groq_expected": false,
+  "actual_intent": "clarify",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": null,
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [],
+  "actual_reply": "Builder and possession details appear on each listing only when they've been recorded, and RERA numbers only when LEIA has verified them. LEIA never guesses these. Open a listing and ask, for example “who is the builder?”.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P20",
+  "category": "project_facts",
+  "question": "what is the RERA number?",
+  "expected_intent": "clarify",
+  "expected_filters": {},
+  "expected_behavior": "RERA number never invented",
+  "groq_expected": false,
+  "actual_intent": "clarify",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": null,
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [],
+  "actual_reply": "Builder and possession details appear on each listing only when they've been recorded, and RERA numbers only when LEIA has verified them. LEIA never guesses these. Open a listing and ask, for example “who is the builder?”.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P21",
+  "category": "project_facts",
+  "question": "flats with lift and gym",
+  "expected_intent": "search",
+  "expected_filters": {
+   "lift": true,
+   "amenities": [
+    "gym"
+   ]
+  },
+  "expected_behavior": "migration 014 project-fact filter; unknown never matches",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": null,
+   "possession_by": null,
+   "lift": true,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": [
+    "gym"
+   ]
+  },
+  "actual_ids": [
+   "A",
+   "D"
+  ],
+  "actual_reply": "I found 2 approved listings for flats, with a lift, with gym.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P22",
+  "category": "project_facts",
+  "question": "ready to move flats with garden",
+  "expected_intent": "search",
+  "expected_filters": {
+   "construction_status": "ready_to_move",
+   "amenities": [
+    "garden"
+   ]
+  },
+  "expected_behavior": "no listing has both: no-match reply with suggestions, nothing invented",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": "ready_to_move",
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": [
+    "garden"
+   ]
+  },
+  "actual_ids": [],
+  "actual_reply": "No available listings match those requirements. I’ve kept your search filters. Would you like to change the budget, location, or facing?\n\nListings exist if you include any construction status (1 listing); or drop the amenities requirement (3 listings).",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P23",
+  "category": "project_facts",
+  "question": "Sai builders flats with lift",
+  "expected_intent": "search",
+  "expected_filters": {
+   "builder": "Sai",
+   "lift": true
+  },
+  "expected_behavior": "migration 014 project-fact filter; unknown never matches",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": "Sai",
+   "construction_status": null,
+   "possession_by": null,
+   "lift": true,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "A"
+  ],
+  "actual_reply": "I found 1 approved listing for flats, by Sai, with a lift.",
+  "mocked_ai": false,
+  "pass": true,
+  "failure_reason": ""
+ },
+ {
+  "id": "P24",
+  "category": "project_facts",
+  "question": "నిర్మాణంలో ఉన్న ఫ్లాట్లు",
+  "expected_intent": "search",
+  "expected_filters": {
+   "construction_status": "under_construction",
+   "property_type": "flat"
+  },
+  "expected_behavior": "Telugu under construction",
+  "groq_expected": false,
+  "actual_intent": "search",
+  "groq_called": false,
+  "actual_filters": {
+   "bedrooms": null,
+   "min_price": null,
+   "max_price": null,
+   "location": null,
+   "property_type": "flat",
+   "facing": null,
+   "min_area_sqft": null,
+   "max_area_sqft": null,
+   "parking": null,
+   "power_backup": null,
+   "sort": null,
+   "builder": null,
+   "construction_status": "under_construction",
+   "possession_by": null,
+   "lift": null,
+   "gated": null,
+   "security": null,
+   "rera_verified": null,
+   "amenities": null
+  },
+  "actual_ids": [
+   "B",
+   "G",
+   "H"
+  ],
+  "actual_reply": "I found 3 approved listings for flats, under construction.",
   "mocked_ai": false,
   "pass": true,
   "failure_reason": ""

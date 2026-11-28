@@ -78,7 +78,7 @@ def database():
             name = connection.execute("SELECT current_database() AS name").fetchone()[
                 "name"
             ]
-            if name not in {"leia_test", "crm_test", "leia_facing_regression_test", "leia_facing_r4_test", "leia_facing_r5_test", "leia_facing_r7_test", "leia_crm_hotfix_test"}:
+            if name not in {"leia_test", "crm_test", "leia_facing_regression_test", "leia_facing_r4_test", "leia_facing_r5_test", "leia_facing_r7_test", "leia_crm_hotfix_test", "leia_builder_test"}:
                 pytest.fail("Use an explicitly allowed disposable test database.")
             # A guard table prevents overwriting any database that already has users.
             exists = connection.execute(
@@ -709,6 +709,12 @@ def test_approved_available_listings_reach_customer_search(database, monkeypatch
             "bedrooms": 3,
             "image": f"/property-media/{kitchen}",
             "tour": public_tour,
+            # Migration 014 facts (additive): unrecorded values stay "unknown"/empty, and an
+            # unverified RERA number is never published.
+            "builder": None, "project_name": None, "construction_status": "unknown",
+            "possession_date": None, "floor_number": None, "total_floors": None, "lift": "unknown",
+            "gated_community": "unknown", "security": "unknown", "amenities": [],
+            "project_source": "unknown", "rera_verified": False, "rera_number": None,
         }]
         assert http.get(public_gallery).json() == [
             {"id": photo_id, "room": room, "image": f"/property-media/{photo_id}"}

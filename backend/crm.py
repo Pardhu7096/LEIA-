@@ -1,10 +1,13 @@
-from uuid import UUID
+import re
+from datetime import date
+from uuid import UUID, uuid4
 
 from auth import require_admin, require_staff
 from database import get_connection
 from fastapi import APIRouter, Depends, HTTPException, Response
 from marketing_jobs import enqueue_on_publish
 from property_models import (
+    PROJECT_FACT_FIELDS,
     PropertyDetails,
     PropertyDraft,
     PropertySummary,
@@ -14,6 +17,7 @@ from psycopg import sql
 from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(prefix="/staff/properties", tags=["Agent CRM"])
+builders_router = APIRouter(prefix="/staff/builders", tags=["Agent CRM"])
 PRIVATE_FIELDS = ("owner_name", "owner_phone", "listing_consent", "agent_notes")
 # Field names come exclusively from our model, never from request-controlled SQL.
 PUBLIC_FIELDS = tuple(
@@ -32,6 +36,8 @@ SUMMARY_FIELDS = (
     "updated_at",
     "version",
 )
+# builder_name is not a column: it is stored as builders.id in properties.builder_id.
+COLUMN_FIELDS = tuple("builder_id" if name == "builder_name" else name for name in PUBLIC_FIELDS)
 DETAIL_FIELDS = (
     "id",
     "created_by",
@@ -82,12 +88,13 @@ def save_private_details(cursor, property_id, payload):
 def read_details(cursor, property_id, user):
     cursor.execute(
         sql.SQL("""
-            SELECT {}, d.owner_name, d.owner_phone,
+            SELECT {}, b.name AS builder_name, d.owner_name, d.owner_phone,
                 COALESCE(d.listing_consent, FALSE) AS listing_consent, d.agent_notes
             FROM public.properties AS p
+            LEFT JOIN public.builders AS b ON b.id = p.builder_id
             LEFT JOIN public.property_private_details AS d ON d.property_id = p.id
             WHERE p.id = %s AND (p.created_by = %s OR %s = 'admin');
-        """).format(columns(DETAIL_FIELDS, "p")),
+        """).format(columns([name for name in DETAIL_FIELDS if name != "builder_name"], "p")),
         (property_id, user["id"], user["role"]),
     )
     record = cursor.fetchone()
@@ -132,7 +139,66 @@ def location_meta_for_write(payload, stored=None) -> dict:
 
 
 def field_values(payload, meta: dict) -> tuple:
-    return tuple(meta[name] if name in meta else getattr(payload, name) for name in PUBLIC_FIELDS)
+    """Values for COLUMN_FIELDS, in order. ``meta`` overrides payload values by field name."""
+    return tuple(meta[name] if name in meta else getattr(payload, name)
+                 for name in ("builder_id" if field == "builder_name" else field for field in PUBLIC_FIELDS))
+
+
+BUILDER_KEY = re.compile(r"[^a-z0-9ఀ-౿]")
+RERA_ADMIN_ONLY = ("Only an admin can mark a RERA number as verified from documents. "
+                   "Save it as owner reported; an admin verifies it before approval.")
+
+
+def builder_key(name: str) -> str:
+    """Same normalization as the builders.name_key generated column."""
+    return BUILDER_KEY.sub("", name.lower())
+
+
+def resolve_builder(cursor, name: str | None, user) -> UUID | None:
+    """The shared builder record for ``name`` (case, spacing and punctuation insensitive), created
+    once if new. Safe under concurrent saves: the unique name_key decides, and a lost race re-reads."""
+    if name is None:
+        return None
+    name = " ".join(name.split())
+    if not builder_key(name):
+        raise HTTPException(status_code=422, detail="Enter a builder name that contains letters or numbers.")
+    cursor.execute(
+        """INSERT INTO public.builders (id, name, created_by) VALUES (%s, %s, %s)
+           ON CONFLICT (name_key) DO NOTHING RETURNING id;""",
+        (uuid4(), name, user["id"]),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        cursor.execute("SELECT id FROM public.builders WHERE name_key = %s;", (builder_key(name),))
+        row = cursor.fetchone()
+    return row["id"]
+
+
+def project_fact_values(payload, stored, user) -> dict:
+    """Migration 014 values to write (by field name, plus builder_id and rera_verified_by).
+
+    - Omitted entirely (Agent CRM APKs built before 014): keep what is stored.
+    - RERA "document_checked" can only be set by an admin. An agent may re-save an already verified
+      number unchanged; changing the number drops the verification.
+    """
+    if stored is not None and not set(PROJECT_FACT_FIELDS) & payload.model_fields_set:
+        kept = {name: stored[name] for name in PROJECT_FACT_FIELDS if name != "builder_name"}
+        return {**kept, "builder_id": stored["builder_id"], "rera_verified_by": stored["rera_verified_by"]}
+    values = {name: getattr(payload, name) for name in PROJECT_FACT_FIELDS if name != "builder_name"}
+    values["builder_id"] = None  # resolved by the caller inside its transaction
+    verified_before = (stored is not None and stored["rera_source"] == "document_checked"
+                       and stored["rera_number"] == payload.rera_number)
+    values["rera_verified_by"] = None
+    if payload.rera_source == "document_checked":
+        if verified_before:
+            values["rera_verified_by"] = stored["rera_verified_by"]
+            values["rera_checked_on"] = payload.rera_checked_on or stored["rera_checked_on"]
+        elif user["role"] == "admin":
+            values["rera_verified_by"] = user["id"]
+            values["rera_checked_on"] = payload.rera_checked_on or date.today()
+        else:
+            raise HTTPException(status_code=403, detail=RERA_ADMIN_ONLY)
+    return values
 
 
 @router.post("", status_code=201, response_model=PropertySummary)
@@ -141,9 +207,12 @@ def create_property(
 ):
     response.headers["Cache-Control"] = "no-store"
     meta = location_meta_for_write(payload)
+    facts = project_fact_values(payload, None, user)
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            names = ("created_by", *PUBLIC_FIELDS)
+            facts["builder_id"] = resolve_builder(cursor, payload.builder_name, user)
+            meta = {**meta, **facts}
+            names = ("created_by", *COLUMN_FIELDS, "rera_verified_by")
             cursor.execute(
                 sql.SQL(
                     "INSERT INTO public.properties ({}) VALUES ({}) RETURNING {};"
@@ -152,7 +221,7 @@ def create_property(
                     sql.SQL(", ").join(sql.Placeholder() for _ in names),
                     columns(SUMMARY_FIELDS),
                 ),
-                (user["id"], *field_values(payload, meta)),
+                (user["id"], *field_values(payload, meta), meta["rera_verified_by"]),
             )
             record = cursor.fetchone()
             save_private_details(cursor, record["id"], payload)
@@ -196,11 +265,12 @@ def update_property(
             # The row lock serializes concurrent saves; provenance is decided against
             # the locked, current row (GEO-M1.1).
             cursor.execute(
-                """SELECT status, version, latitude, longitude, location_source,
-                          location_accuracy_m, location_captured_at
+                sql.SQL("""SELECT status, version, latitude, longitude, location_source,
+                          location_accuracy_m, location_captured_at, builder_id, rera_verified_by, {}
                    FROM public.properties
                    WHERE id = %s AND (created_by = %s OR %s = 'admin')
-                   FOR UPDATE;""",
+                   FOR UPDATE;""").format(
+                    columns([name for name in PROJECT_FACT_FIELDS if name != "builder_name"])),
                 (property_id, user["id"], user["role"]),
             )
             existing = cursor.fetchone()
@@ -215,16 +285,20 @@ def update_property(
                     status_code=409,
                     detail="This draft changed since you opened it. Reopen it to load the latest version before saving.",
                 )
+            facts = project_fact_values(payload, existing, user)
+            if set(PROJECT_FACT_FIELDS) & payload.model_fields_set:
+                facts["builder_id"] = resolve_builder(cursor, payload.builder_name, user)
+            meta = {**location_meta_for_write(payload, existing), **facts}
             cursor.execute(
-                sql.SQL("""UPDATE public.properties SET {},
+                sql.SQL("""UPDATE public.properties SET {}, rera_verified_by = %s,
                     version = version + 1, updated_at = clock_timestamp()
                     WHERE id = %s;""").format(
                     sql.SQL(", ").join(
                         sql.SQL("{} = %s").format(sql.Identifier(name))
-                        for name in PUBLIC_FIELDS
+                        for name in COLUMN_FIELDS
                     )
                 ),
-                (*field_values(payload, location_meta_for_write(payload, existing)), property_id),
+                (*field_values(payload, meta), meta["rera_verified_by"], property_id),
             )
             save_private_details(cursor, property_id, payload)
             return read_details(cursor, property_id, user)
@@ -313,3 +387,67 @@ def approve_property(
 ):
     response.headers["Cache-Control"] = "no-store"
     return transition_property(property_id, payload.version, user, publish=True)
+
+
+class ReraVerification(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1)
+    verified: bool
+
+
+@router.post("/{property_id}/rera-verification", response_model=PropertyDetails)
+def verify_rera(
+    property_id: UUID, payload: ReraVerification, response: Response, user=Depends(require_admin),
+):
+    """Admin only: mark the recorded RERA number as checked against documents (or withdraw it).
+    Works on drafts and submitted listings so it can happen during review; approved listings stay
+    as approved."""
+    response.headers["Cache-Control"] = "no-store"
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT status, version, rera_number FROM public.properties WHERE id = %s FOR UPDATE;",
+                (property_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Property not found.")
+            if row["status"] not in ("draft", "submitted") or row["version"] != payload.version:
+                raise HTTPException(status_code=409,
+                                    detail="This listing changed. Refresh it and review the current version.")
+            if row["rera_number"] is None:
+                raise HTTPException(status_code=422, detail="This listing has no RERA number to verify.")
+            cursor.execute(
+                """UPDATE public.properties
+                   SET rera_source = %s, rera_checked_on = CURRENT_DATE, rera_verified_by = %s,
+                       version = version + 1, updated_at = clock_timestamp()
+                   WHERE id = %s;""",
+                ("document_checked" if payload.verified else "owner_reported",
+                 user["id"] if payload.verified else None, property_id),
+            )
+            return read_details(cursor, property_id, user)
+
+
+class BuilderIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=200)
+
+
+@builders_router.get("")
+def list_builders(response: Response, user=Depends(require_staff)):
+    """Builder names for the Agent CRM picker (no creator or internal details)."""
+    response.headers["Cache-Control"] = "no-store"
+    with get_connection() as connection:
+        connection.autocommit = True
+        rows = connection.execute("SELECT id, name FROM public.builders ORDER BY name LIMIT 500;").fetchall()
+    return {"builders": rows}
+
+
+@builders_router.post("")
+def create_builder(payload: BuilderIn, response: Response, user=Depends(require_staff)):
+    """Returns the existing builder when the normalized name already exists (no duplicates)."""
+    response.headers["Cache-Control"] = "no-store"
+    with get_connection() as connection, connection.cursor() as cursor:
+        builder_id = resolve_builder(cursor, payload.name, user)
+        cursor.execute("SELECT id, name FROM public.builders WHERE id = %s;", (builder_id,))
+        return cursor.fetchone()
