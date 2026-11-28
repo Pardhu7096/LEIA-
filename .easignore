@@ -1,0 +1,48 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+.expo/
+dist/
+
+# Database dumps, local audit output and scratch files: never commit (public repo).
+backups/
+*.dump
+*.backup
+*_report.txt
+*.bak
+*.diff
+
+# Digital Studio: raw footage and generated media stay out of Git.
+renders/
+studio-media/
+*.mp4
+*.mov
+*.wav
+*.mp3
+
+# Android signing material and build outputs: never commit (public repo).
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+*.apk
+*.aab
+*.idsig
+build-manifest.json
+
+# Build-installed tools (scripts/render/install-ffprobe.sh)
+backend/bin/
+
+# EAS uploads only what an app build needs (no backend, docs, scripts or reports)
+backend/
+docs/
+scripts/
+backups/
+.github/
+*.diff
+*.sql

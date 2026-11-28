@@ -1,0 +1,22 @@
+{
+  "cli": {
+    "version": ">= 20.4.0",
+    "appVersionSource": "local",
+    "requireCommit": true
+  },
+  "build": {
+    "pilot": {
+      "distribution": "internal",
+      "node": "22.16.0",
+      "autoIncrement": false,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://leia-backend-staging.onrender.com"
+      },
+      "android": {
+        "buildType": "apk",
+        "resourceClass": "medium",
+        "credentialsSource": "remote"
+      }
+    }
+  }
+}
